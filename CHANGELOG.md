@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-03-01
+
+### Added
+- Draft badge in session sidebar, list, and inbox
+
+### Fixed
+- Fix Codex sessions not appearing due to truncated first-line read (#23)
+- Fix duplicate message display when queuing deferred messages
+- Fix stale detection killing busy processes and orphaning CLI sessions
+
 ## [0.4.6] - 2026-02-27
 
 ### Added
