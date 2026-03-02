@@ -168,9 +168,8 @@ export function EmulatorPage() {
   const { version: versionInfo, refetch: refetchVersion } = useVersion();
   const capabilities = versionInfo?.capabilities ?? [];
   const needsDownload =
-    (capabilities.includes("deviceBridge-download") ||
-      capabilities.includes("emulator-download")) &&
-    !(capabilities.includes("deviceBridge") || capabilities.includes("emulator"));
+    capabilities.includes("deviceBridge-download") &&
+    !capabilities.includes("deviceBridge");
 
   const { emulators, loading, error, startEmulator, stopEmulator } =
     useEmulators({ enabled: !needsDownload });

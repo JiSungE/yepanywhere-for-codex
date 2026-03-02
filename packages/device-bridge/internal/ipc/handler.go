@@ -23,7 +23,7 @@ type Handler struct {
 }
 
 // NewHandler creates an IPC handler.
-// onIdle is called when no streaming sessions remain for 30 seconds (nil to disable).
+// onIdle is called when no streaming sessions remain for 10 seconds (nil to disable).
 func NewHandler(adbPath string, stunServers []string, onIdle func()) *Handler {
 	h := &Handler{
 		discovery: NewDiscovery(adbPath),

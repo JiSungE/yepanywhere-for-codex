@@ -378,9 +378,7 @@ export function Sidebar({
               />
             )}
             {(capabilities.includes("deviceBridge") ||
-              capabilities.includes("deviceBridge-download") ||
-              capabilities.includes("emulator") ||
-              capabilities.includes("emulator-download")) && (
+              capabilities.includes("deviceBridge-download")) && (
               <SidebarNavItem
                 to="/emulator"
                 icon={SidebarIcons.emulator}

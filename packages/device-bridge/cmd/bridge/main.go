@@ -130,7 +130,7 @@ func runIPC(adbPath string) {
 
 	stunServers := []string{"stun:stun.l.google.com:19302"}
 	handler := ipc.NewHandler(adbPath, stunServers, func() {
-		log.Println("Idle timeout reached (no sessions for 30s), shutting down")
+		log.Println("Idle timeout reached (no sessions for 10s), shutting down")
 		os.Exit(0)
 	})
 

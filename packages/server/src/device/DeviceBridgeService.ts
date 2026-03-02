@@ -454,10 +454,7 @@ export class DeviceBridgeService {
   }
 
   /** Start streaming a device to a client. */
-  async startStream(
-    msg: DeviceStreamStart,
-    send: ClientSendFn,
-  ): Promise<void> {
+  async startStream(msg: DeviceStreamStart, send: ClientSendFn): Promise<void> {
     await this.ensureStarted();
     this.registerClientSender(msg.sessionId, send);
 
@@ -465,7 +462,6 @@ export class DeviceBridgeService {
       type: "session.start",
       sessionId: msg.sessionId,
       deviceId: msg.deviceId,
-      emulatorId: msg.deviceId, // compatibility with legacy sidecar binaries
       options: msg.options,
     });
   }
@@ -501,25 +497,13 @@ export class DeviceBridgeService {
   // REST API proxies
   // =========================================================================
 
-  /**
-   * Fetch sidecar REST endpoint with legacy path fallback.
-   *
-   * During the rename transition, older sidecar binaries still expose
-   * `/emulators/*`. Try the new `/devices/*` first, then fall back on 404.
-   */
+  /** Fetch a sidecar REST endpoint. */
   private async fetchSidecar(
     endpoint: string,
     init?: RequestInit,
   ): Promise<Response> {
     const url = `http://127.0.0.1:${this.port}${endpoint}`;
-    const response = await fetch(url, init);
-    if (response.status !== 404 || !endpoint.startsWith("/devices")) {
-      return response;
-    }
-
-    const legacyEndpoint = `/emulators${endpoint.slice("/devices".length)}`;
-    const legacyUrl = `http://127.0.0.1:${this.port}${legacyEndpoint}`;
-    return fetch(legacyUrl, init);
+    return fetch(url, init);
   }
 
   /** List devices via sidecar REST API. */

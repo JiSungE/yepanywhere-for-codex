@@ -50,7 +50,7 @@ type SessionManager struct {
 }
 
 // NewSessionManager creates a session manager.
-// onIdle is called when no sessions remain for 30 seconds (nil to disable).
+// onIdle is called when no sessions remain for 10 seconds (nil to disable).
 func NewSessionManager(stunServers []string, sendMsg func(msg []byte), onIdle func()) *SessionManager {
 	sm := &SessionManager{
 		sessions:    make(map[string]*streamSession),
