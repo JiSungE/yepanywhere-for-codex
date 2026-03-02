@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -428,6 +428,9 @@ export class ClaudeProvider implements AgentProvider {
               capturedProcess.exitCode === null &&
               !capturedProcess.killed
           : undefined,
+      get pid() {
+        return (capturedProcess as ChildProcess | null)?.pid;
+      },
       setMaxThinkingTokens: (tokens: number | null) =>
         sdkQuery.setMaxThinkingTokens(tokens),
       interrupt: () => sdkQuery.interrupt(),

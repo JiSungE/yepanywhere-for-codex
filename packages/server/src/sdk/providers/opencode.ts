@@ -158,6 +158,7 @@ export class OpenCodeProvider implements AgentProvider {
   async startSession(options: StartSessionOptions): Promise<AgentSession> {
     const queue = new MessageQueue();
     const abortController = new AbortController();
+    const pidRef: { value?: number } = {};
 
     // Push initial message if provided
     if (options.initialMessage) {
@@ -169,12 +170,16 @@ export class OpenCodeProvider implements AgentProvider {
       queue,
       abortController.signal,
       options,
+      pidRef,
     );
 
     return {
       iterator,
       queue,
       abort: () => abortController.abort(),
+      get pid() {
+        return pidRef.value;
+      },
     };
   }
 
@@ -187,6 +192,7 @@ export class OpenCodeProvider implements AgentProvider {
     queue: MessageQueue,
     signal: AbortSignal,
     options: StartSessionOptions,
+    pidRef: { value?: number },
   ): AsyncIterableIterator<SDKMessage> {
     const log = getLogger();
     const opencodePath = this.findOpenCodePath();
@@ -217,6 +223,7 @@ export class OpenCodeProvider implements AgentProvider {
           },
         },
       );
+      pidRef.value = serverProcess.pid;
     } catch (error) {
       yield {
         type: "error",

@@ -76,6 +76,8 @@ export interface AgentSession {
   abort: () => void;
   /** Check if the underlying CLI process is still alive (undefined = not available) */
   isProcessAlive?: () => boolean;
+  /** OS PID of the spawned agent child process (undefined if not available) */
+  pid?: number | (() => number | undefined);
   /** Session ID if available immediately (some providers provide later via messages) */
   sessionId?: string;
   /**

@@ -243,6 +243,9 @@ export class GeminiACPProvider implements AgentProvider {
         abortController.abort();
         client.close();
       },
+      get pid() {
+        return client.pid;
+      },
     };
   }
 

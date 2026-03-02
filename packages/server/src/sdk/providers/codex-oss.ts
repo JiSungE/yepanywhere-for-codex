@@ -272,17 +272,26 @@ export class CodexOSSProvider implements AgentProvider {
   async startSession(options: StartSessionOptions): Promise<AgentSession> {
     const queue = new MessageQueue();
     const abortController = new AbortController();
+    const pidRef: { value?: number } = {};
 
     if (options.initialMessage) {
       queue.push(options.initialMessage);
     }
 
-    const iterator = this.runSession(options, queue, abortController.signal);
+    const iterator = this.runSession(
+      options,
+      queue,
+      abortController.signal,
+      pidRef,
+    );
 
     return {
       iterator,
       queue,
       abort: () => abortController.abort(),
+      get pid() {
+        return pidRef.value;
+      },
     };
   }
 
@@ -302,6 +311,7 @@ export class CodexOSSProvider implements AgentProvider {
     options: StartSessionOptions,
     queue: MessageQueue,
     signal: AbortSignal,
+    pidRef: { value?: number },
   ): AsyncIterableIterator<SDKMessage> {
     const codexPath = this.findCodexPath();
     if (!codexPath) {
@@ -388,6 +398,7 @@ export class CodexOSSProvider implements AgentProvider {
           stdio: ["pipe", "pipe", "pipe"],
           env: { ...process.env },
         });
+        pidRef.value = codexProcess.pid;
 
         // For first turn, send prompt via stdin
         // For resume, prompt is passed as argument

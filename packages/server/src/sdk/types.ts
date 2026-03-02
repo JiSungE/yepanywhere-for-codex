@@ -142,6 +142,8 @@ export interface StartSessionResult {
   abort: () => void;
   /** Check if the underlying CLI process is still alive (undefined = not available) */
   isProcessAlive?: () => boolean;
+  /** OS PID of the spawned agent child process (undefined if not available) */
+  pid?: number | (() => number | undefined);
   /**
    * Change max thinking tokens without restarting the session.
    * Pass null to disable thinking mode.

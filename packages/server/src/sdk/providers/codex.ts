@@ -258,6 +258,11 @@ type AppServerRequestHandler = (
 class CodexAppServerClient {
   private process: ChildProcess | null = null;
   private stdoutBuffer = "";
+
+  /** OS PID of the spawned app-server child process */
+  get pid(): number | undefined {
+    return this.process?.pid;
+  }
   private nextRequestId = 1;
   private readonly pendingRequests = new Map<
     JsonRpcId,
@@ -919,6 +924,9 @@ export class CodexProvider implements AgentProvider {
       abort: () => {
         abortController.abort();
         activeClient?.close();
+      },
+      get pid() {
+        return activeClient?.pid;
       },
       steer: async (message) => {
         if (!activeClient) return false;

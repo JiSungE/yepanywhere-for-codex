@@ -200,6 +200,8 @@ export interface ProcessInfo {
   contextUsage?: ContextUsage;
   /** SSH host for remote execution (undefined = local) */
   executor?: string;
+  /** OS PID of the spawned agent child process */
+  pid?: number;
 }
 
 // Process events for subscribers
@@ -234,4 +236,6 @@ export interface ProcessOptions {
   executor?: string;
   /** Permission rules for tool filtering (deny/allow patterns) */
   permissions?: PermissionRules;
+  /** OS PID of the spawned agent child process, or getter for deferred resolution */
+  pid?: number | (() => number | undefined);
 }

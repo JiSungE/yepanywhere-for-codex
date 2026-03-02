@@ -68,6 +68,11 @@ export class ACPClient {
   private process: ChildProcess | null = null;
   private connection: ClientSideConnection | null = null;
   private log = getLogger();
+
+  /** OS PID of the spawned ACP agent child process */
+  get pid(): number | undefined {
+    return this.process?.pid;
+  }
   private onSessionUpdate: SessionUpdateCallback | null = null;
   private onPermissionRequest: PermissionRequestCallback | null = null;
 

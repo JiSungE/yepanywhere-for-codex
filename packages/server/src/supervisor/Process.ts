@@ -167,6 +167,9 @@ export class Process {
   /** Check if underlying CLI process is still alive (undefined = not available, fall back to time heuristic) */
   private _isProcessAlive: (() => boolean) | null;
 
+  /** OS PID of the spawned agent child process (supports deferred resolution) */
+  private _pidResolver: number | (() => number | undefined) | undefined;
+
   /** Resolved model name from the first assistant message (e.g., "claude-sonnet-4-5-20250929") */
   private _resolvedModel: string | undefined;
 
@@ -210,6 +213,7 @@ export class Process {
     this.steerFn = options.steerFn ?? null;
     this.supportedModelsFn = options.supportedModelsFn ?? null;
     this.supportedCommandsFn = options.supportedCommandsFn ?? null;
+    this._pidResolver = options.pid;
     this.setModelFn = options.setModelFn ?? null;
     this._isProcessAlive = options.isProcessAlive ?? null;
     this._lastMessageTime = new Date();
@@ -274,6 +278,14 @@ export class Process {
    */
   get isProcessAlive(): boolean | undefined {
     return this._isProcessAlive?.();
+  }
+
+  /** OS PID of the spawned agent child process */
+  get pid(): number | undefined {
+    if (typeof this._pidResolver === "function") {
+      return this._pidResolver();
+    }
+    return this._pidResolver;
   }
 
   get queueDepth(): number {
@@ -690,6 +702,7 @@ export class Process {
       thinking: this._thinking,
       effort: this._effort,
       executor: this.executor,
+      pid: this.pid,
     };
 
     // Add idleSince if idle

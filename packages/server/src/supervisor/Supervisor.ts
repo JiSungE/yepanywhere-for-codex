@@ -374,6 +374,10 @@ export class Supervisor {
       queue,
       abortFn: abort,
       isProcessAlive,
+      pid: () => {
+        const p = result.pid;
+        return typeof p === "function" ? p() : p;
+      },
       setMaxThinkingTokensFn: setMaxThinkingTokens,
       interruptFn: interrupt,
       supportedModelsFn: supportedModels,
@@ -472,6 +476,10 @@ export class Supervisor {
       queue,
       abortFn: abort,
       isProcessAlive,
+      pid: () => {
+        const p = result.pid;
+        return typeof p === "function" ? p() : p;
+      },
       setMaxThinkingTokensFn: setMaxThinkingTokens,
       interruptFn: interrupt,
       supportedModelsFn: supportedModels,
@@ -566,6 +574,10 @@ export class Supervisor {
       queue,
       abortFn: abort,
       isProcessAlive,
+      pid: () => {
+        const p = result.pid;
+        return typeof p === "function" ? p() : p;
+      },
       setMaxThinkingTokensFn: setMaxThinkingTokens,
       interruptFn: interrupt,
       steerFn: steer,
@@ -662,6 +674,10 @@ export class Supervisor {
       queue,
       abortFn: abort,
       isProcessAlive,
+      pid: () => {
+        const p = result.pid;
+        return typeof p === "function" ? p() : p;
+      },
       setMaxThinkingTokensFn: setMaxThinkingTokens,
       interruptFn: interrupt,
       steerFn: steer,

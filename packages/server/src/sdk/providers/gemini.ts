@@ -156,6 +156,7 @@ export class GeminiProvider implements AgentProvider {
   async startSession(options: StartSessionOptions): Promise<AgentSession> {
     const queue = new MessageQueue();
     const abortController = new AbortController();
+    const pidRef: { value?: number } = {};
 
     // Push initial message if provided
     if (options.initialMessage) {
@@ -167,12 +168,16 @@ export class GeminiProvider implements AgentProvider {
       queue,
       abortController.signal,
       options,
+      pidRef,
     );
 
     return {
       iterator,
       queue,
       abort: () => abortController.abort(),
+      get pid() {
+        return pidRef.value;
+      },
     };
   }
 
@@ -184,6 +189,7 @@ export class GeminiProvider implements AgentProvider {
     queue: MessageQueue,
     signal: AbortSignal,
     options: StartSessionOptions,
+    pidRef: { value?: number },
   ): AsyncIterableIterator<SDKMessage> {
     console.log("[GeminiProvider] Starting NON-ACP session (stream-json mode)");
     const geminiPath = this.findGeminiPath();
@@ -272,6 +278,7 @@ export class GeminiProvider implements AgentProvider {
             ...process.env,
           },
         });
+        pidRef.value = geminiProcess.pid;
       } catch (error) {
         yield {
           type: "error",
