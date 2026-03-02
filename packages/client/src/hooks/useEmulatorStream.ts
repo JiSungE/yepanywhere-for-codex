@@ -212,22 +212,29 @@ export function useEmulatorStream(): UseEmulatorStreamResult {
       unsubRef.current = unsub ?? null;
 
       // Ensure WebSocket is connected before sending start message
-      conn
-        .ensureConnected?.()
-        ?.then(() => {
-          conn.sendMessage?.({
-            type: "emulator_stream_start",
-            sessionId,
-            emulatorId,
-            options: { maxFps: 30, maxWidth: 720 },
-          });
-        })
-        .catch((err: unknown) => {
-          setConnectionState("failed");
-          setError(
-            `Connection failed: ${err instanceof Error ? err.message : String(err)}`,
-          );
+      const ensureConnected = (
+        conn as { ensureConnected?: () => Promise<void> }
+      ).ensureConnected;
+      const sendStart = () => {
+        conn.sendMessage?.({
+          type: "emulator_stream_start",
+          sessionId,
+          emulatorId,
+          options: { maxFps: 30, maxWidth: 720 },
         });
+      };
+      if (ensureConnected) {
+        ensureConnected()
+          .then(sendStart)
+          .catch((err: unknown) => {
+            setConnectionState("failed");
+            setError(
+              `Connection failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          });
+      } else {
+        sendStart();
+      }
     },
     [disconnect, getConnection],
   );
