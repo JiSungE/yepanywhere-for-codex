@@ -1258,6 +1258,18 @@ export function createSessionsRoutes(deps: SessionsDeps): Hono {
     const globalInstructions =
       deps.serverSettingsService?.getSetting("globalInstructions") || undefined;
 
+    // Look up the session's original provider so we resume with the correct one
+    // (e.g., claude-ollama sessions need the Ollama provider, not default Claude)
+    let providerName = body.provider;
+    if (!providerName) {
+      const reader = deps.readerFactory(project);
+      const sessionSummary = await reader.getSessionSummary(
+        sessionId,
+        projectId,
+      );
+      providerName = sessionSummary?.provider ?? project.provider;
+    }
+
     const result = await deps.supervisor.resumeSession(
       sessionId,
       project.path,
@@ -1267,7 +1279,7 @@ export function createSessionsRoutes(deps: SessionsDeps): Hono {
         model,
         thinking,
         effort,
-        providerName: body.provider,
+        providerName,
         executor,
         globalInstructions,
         permissions: body.permissions,
