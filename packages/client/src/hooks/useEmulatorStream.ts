@@ -107,8 +107,11 @@ export function useEmulatorStream(): UseEmulatorStreamResult {
       });
       pcRef.current = pc;
 
+      console.log("[EmulatorStream] RTCPeerConnection created");
+
       // Handle remote stream
       pc.ontrack = (event) => {
+        console.log("[EmulatorStream] ontrack:", event.track.kind);
         if (event.streams[0]) {
           setRemoteStream(event.streams[0]);
         }
@@ -117,6 +120,7 @@ export function useEmulatorStream(): UseEmulatorStreamResult {
       // Handle data channel from sidecar
       pc.ondatachannel = (event) => {
         const dc = event.channel;
+        console.log("[EmulatorStream] ondatachannel:", dc.label);
         dc.onopen = () => {
           setDataChannel(dc);
         };
@@ -125,8 +129,34 @@ export function useEmulatorStream(): UseEmulatorStreamResult {
         };
       };
 
+      // ICE state tracking
+      pc.oniceconnectionstatechange = () => {
+        console.log(
+          "[EmulatorStream] ICE state:",
+          pc.iceConnectionState,
+        );
+      };
+
+      pc.onicegatheringstatechange = () => {
+        console.log(
+          "[EmulatorStream] ICE gathering:",
+          pc.iceGatheringState,
+        );
+      };
+
+      pc.onsignalingstatechange = () => {
+        console.log(
+          "[EmulatorStream] Signaling state:",
+          pc.signalingState,
+        );
+      };
+
       // Connection state tracking
       pc.onconnectionstatechange = () => {
+        console.log(
+          "[EmulatorStream] Connection state:",
+          pc.connectionState,
+        );
         switch (pc.connectionState) {
           case "connected":
             setConnectionState("connected");
@@ -146,6 +176,15 @@ export function useEmulatorStream(): UseEmulatorStreamResult {
 
       // Send ICE candidates to sidecar via relay
       pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          console.log(
+            "[EmulatorStream] Local ICE candidate:",
+            event.candidate.type,
+            event.candidate.candidate,
+          );
+        } else {
+          console.log("[EmulatorStream] ICE gathering complete");
+        }
         conn.sendMessage?.({
           type: "emulator_ice_candidate",
           sessionId,
@@ -167,6 +206,10 @@ export function useEmulatorStream(): UseEmulatorStreamResult {
 
           switch (msg.type) {
             case "emulator_webrtc_offer": {
+              console.log(
+                "[EmulatorStream] Received offer, SDP length:",
+                msg.sdp.length,
+              );
               try {
                 await pc.setRemoteDescription({
                   type: "offer",
@@ -174,12 +217,17 @@ export function useEmulatorStream(): UseEmulatorStreamResult {
                 });
                 const answer = await pc.createAnswer();
                 await pc.setLocalDescription(answer);
+                console.log(
+                  "[EmulatorStream] Answer created, SDP length:",
+                  answer.sdp?.length,
+                );
                 conn.sendMessage?.({
                   type: "emulator_webrtc_answer",
                   sessionId,
                   sdp: answer.sdp ?? "",
                 });
               } catch (err) {
+                console.error("[EmulatorStream] Negotiation error:", err);
                 setConnectionState("failed");
                 setError(
                   `WebRTC negotiation failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -190,6 +238,10 @@ export function useEmulatorStream(): UseEmulatorStreamResult {
 
             case "emulator_ice_candidate_event": {
               if (msg.candidate) {
+                console.log(
+                  "[EmulatorStream] Remote ICE candidate:",
+                  msg.candidate.candidate,
+                );
                 try {
                   await pc.addIceCandidate(msg.candidate);
                 } catch (err) {
@@ -198,11 +250,20 @@ export function useEmulatorStream(): UseEmulatorStreamResult {
                     err,
                   );
                 }
+              } else {
+                console.log(
+                  "[EmulatorStream] Remote ICE gathering complete",
+                );
               }
               break;
             }
 
             case "emulator_session_state": {
+              console.log(
+                "[EmulatorStream] Session state:",
+                msg.state,
+                msg.error ?? "",
+              );
               if (msg.state === "failed" || msg.state === "disconnected") {
                 setConnectionState(msg.state);
                 if (msg.error) setError(msg.error);

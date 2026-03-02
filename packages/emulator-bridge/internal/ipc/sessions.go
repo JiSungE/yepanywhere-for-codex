@@ -23,8 +23,8 @@ type SessionStartOptions struct {
 type streamSession struct {
 	sessionID   string
 	emulatorID  string
-	client      *emulator.Client
-	frameSource *emulator.FrameSource
+	maxWidth    int // for pool release key
+	frameSource *emulator.FrameSource // shared via pool, not owned
 	enc         *encoder.H264Encoder
 	peer        *stream.PeerSession
 	input       *stream.InputHandler
@@ -39,14 +39,51 @@ type SessionManager struct {
 	sessions    map[string]*streamSession
 	stunServers []string
 	sendMsg     func(msg []byte) // send JSON to the Yep server WebSocket
+	pool        *ResourcePool    // shared gRPC clients and FrameSources
+	onIdle      func()           // called when no sessions remain for idleTimeout
+	idleTimer   *time.Timer
+	idleTimeout time.Duration
 }
 
 // NewSessionManager creates a session manager.
-func NewSessionManager(stunServers []string, sendMsg func(msg []byte)) *SessionManager {
-	return &SessionManager{
+// onIdle is called when no sessions remain for 30 seconds (nil to disable).
+func NewSessionManager(stunServers []string, sendMsg func(msg []byte), onIdle func()) *SessionManager {
+	sm := &SessionManager{
 		sessions:    make(map[string]*streamSession),
 		stunServers: stunServers,
 		sendMsg:     sendMsg,
+		pool:        NewResourcePool(),
+		onIdle:      onIdle,
+		idleTimeout: 30 * time.Second,
+	}
+	// Start idle timer immediately (bridge starts with no sessions).
+	if onIdle != nil {
+		sm.idleTimer = time.AfterFunc(sm.idleTimeout, sm.handleIdle)
+	}
+	return sm
+}
+
+// handleIdle fires when the idle timer expires. Only triggers onIdle if still no sessions.
+func (sm *SessionManager) handleIdle() {
+	sm.mu.Lock()
+	count := len(sm.sessions)
+	sm.mu.Unlock()
+
+	if count == 0 && sm.onIdle != nil {
+		log.Printf("[SessionManager] idle for %v with no sessions, triggering shutdown", sm.idleTimeout)
+		sm.onIdle()
+	}
+}
+
+// resetIdleTimer must be called with sm.mu held.
+func (sm *SessionManager) resetIdleTimer() {
+	if sm.idleTimer == nil {
+		return
+	}
+	if len(sm.sessions) > 0 {
+		sm.idleTimer.Stop()
+	} else {
+		sm.idleTimer.Reset(sm.idleTimeout)
 	}
 }
 
@@ -72,11 +109,10 @@ func (sm *SessionManager) StartSession(sessionID, emulatorID string, opts Sessio
 		maxFPS = 30
 	}
 
-	// Connect to emulator gRPC.
-	grpcAddr := GRPCAddr(emulatorID)
-	log.Printf("[session %s] connecting to emulator %s at %s", sessionID, emulatorID, grpcAddr)
+	// Acquire shared gRPC client from pool.
+	log.Printf("[session %s] connecting to emulator %s", sessionID, emulatorID)
 
-	client, err := emulator.NewClient(grpcAddr)
+	client, err := sm.pool.AcquireClient(emulatorID)
 	if err != nil {
 		sm.sendState(sessionID, "failed", fmt.Sprintf("emulator connect: %v", err))
 		return fmt.Errorf("connecting to emulator: %w", err)
@@ -88,12 +124,13 @@ func (sm *SessionManager) StartSession(sessionID, emulatorID string, opts Sessio
 
 	h264Enc, err := encoder.NewH264Encoder(targetW, targetH, maxFPS)
 	if err != nil {
-		client.Close()
+		sm.pool.ReleaseClient(emulatorID)
 		sm.sendState(sessionID, "failed", fmt.Sprintf("encoder: %v", err))
 		return fmt.Errorf("creating encoder: %w", err)
 	}
 
-	frameSource := emulator.NewFrameSource(client, maxWidth)
+	// Acquire shared FrameSource from pool.
+	frameSource := sm.pool.AcquireFrameSource(emulatorID, maxWidth, client)
 	inputHandler := stream.NewInputHandler(client)
 
 	// Create WebRTC peer with trickle ICE.
@@ -102,9 +139,9 @@ func (sm *SessionManager) StartSession(sessionID, emulatorID string, opts Sessio
 	}
 	peer, err := stream.NewPeerSession(sm.stunServers, inputHandler.HandleMessage, onICE)
 	if err != nil {
-		frameSource.Stop()
+		sm.pool.ReleaseFrameSource(emulatorID, maxWidth)
 		h264Enc.Close()
-		client.Close()
+		sm.pool.ReleaseClient(emulatorID)
 		sm.sendState(sessionID, "failed", fmt.Sprintf("peer: %v", err))
 		return fmt.Errorf("creating peer: %w", err)
 	}
@@ -112,9 +149,9 @@ func (sm *SessionManager) StartSession(sessionID, emulatorID string, opts Sessio
 	sdp, err := peer.CreateOffer()
 	if err != nil {
 		peer.Close()
-		frameSource.Stop()
+		sm.pool.ReleaseFrameSource(emulatorID, maxWidth)
 		h264Enc.Close()
-		client.Close()
+		sm.pool.ReleaseClient(emulatorID)
 		sm.sendState(sessionID, "failed", fmt.Sprintf("offer: %v", err))
 		return fmt.Errorf("creating offer: %w", err)
 	}
@@ -123,7 +160,7 @@ func (sm *SessionManager) StartSession(sessionID, emulatorID string, opts Sessio
 	sess := &streamSession{
 		sessionID:   sessionID,
 		emulatorID:  emulatorID,
-		client:      client,
+		maxWidth:    maxWidth,
 		frameSource: frameSource,
 		enc:         h264Enc,
 		peer:        peer,
@@ -133,6 +170,7 @@ func (sm *SessionManager) StartSession(sessionID, emulatorID string, opts Sessio
 		targetH:     targetH,
 	}
 	sm.sessions[sessionID] = sess
+	sm.resetIdleTimer()
 
 	// Monitor peer close.
 	go func() {
@@ -142,6 +180,7 @@ func (sm *SessionManager) StartSession(sessionID, emulatorID string, opts Sessio
 			if s, ok := sm.sessions[sessionID]; ok && s == sess {
 				sm.closeSessionLocked(sess)
 				delete(sm.sessions, sessionID)
+				sm.resetIdleTimer()
 			}
 			sm.mu.Unlock()
 			sm.sendState(sessionID, "disconnected", "")
@@ -201,6 +240,7 @@ func (sm *SessionManager) StopSession(sessionID string) {
 	if ok {
 		sm.closeSessionLocked(sess)
 		delete(sm.sessions, sessionID)
+		sm.resetIdleTimer()
 	}
 	sm.mu.Unlock()
 
@@ -218,15 +258,20 @@ func (sm *SessionManager) CloseAll() {
 		sm.closeSessionLocked(sess)
 		delete(sm.sessions, id)
 	}
+	// Force-close any remaining pool resources (shouldn't be any after closeSessionLocked).
+	sm.pool.CloseAll()
+	sm.resetIdleTimer()
 }
 
 func (sm *SessionManager) closeSessionLocked(sess *streamSession) {
 	sess.cancel()
 	sess.peer.Close()
-	sess.frameSource.Stop()
+	// Release shared resources via pool (ref-counted).
+	sm.pool.ReleaseFrameSource(sess.emulatorID, sess.maxWidth)
+	sm.pool.ReleaseClient(sess.emulatorID)
 	sess.enc.Close()
-	sess.client.Close()
 	log.Printf("[session %s] closed", sess.sessionID)
+	// Note: caller must call resetIdleTimer() after deleting from sm.sessions.
 }
 
 func (sm *SessionManager) runPipeline(sess *streamSession) {
@@ -250,6 +295,10 @@ func (sm *SessionManager) runPipeline(sess *streamSession) {
 	log.Printf("[session %s] pipeline started", sess.sessionID)
 	defer log.Printf("[session %s] pipeline stopped", sess.sessionID)
 
+	const activityTimeout = 15 * time.Second
+	activityTimer := time.NewTimer(activityTimeout)
+	defer activityTimer.Stop()
+
 	var lastTime time.Time
 	var frameCount int
 	var totalRecv, totalConvert, totalEncode, totalWrite time.Duration
@@ -257,6 +306,10 @@ func (sm *SessionManager) runPipeline(sess *streamSession) {
 	for {
 		select {
 		case <-sess.peer.Done():
+			return
+		case <-activityTimer.C:
+			log.Printf("[session %s] activity timeout (%v with no frames written), closing", sess.sessionID, activityTimeout)
+			go sm.StopSession(sess.sessionID)
 			return
 		case frame, ok := <-frames:
 			if !ok {
@@ -316,6 +369,15 @@ func (sm *SessionManager) runPipeline(sess *streamSession) {
 				log.Printf("[session %s] write error: %v", sess.sessionID, err)
 				return
 			}
+
+			// Reset activity timer on successful write.
+			if !activityTimer.Stop() {
+				select {
+				case <-activityTimer.C:
+				default:
+				}
+			}
+			activityTimer.Reset(activityTimeout)
 
 			tDone := time.Now()
 			totalWrite += tDone.Sub(tWrite)

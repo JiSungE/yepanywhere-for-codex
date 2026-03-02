@@ -193,7 +193,10 @@ export class EmulatorBridgeService {
           `[EmulatorBridge] Sidecar exited (code=${code}, signal=${signal})`,
         );
         this.cleanup();
-        this.scheduleRestart();
+        // Don't auto-restart on clean exit (idle shutdown) — will restart on next demand.
+        if (code !== 0) {
+          this.scheduleRestart();
+        }
       });
 
       // Connect WebSocket.

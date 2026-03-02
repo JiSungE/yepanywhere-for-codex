@@ -139,6 +139,32 @@ func (c *Client) PollScreenshots(ctx context.Context, maxWidth int) <-chan *Fram
 	return ch
 }
 
+// GetOneScreenshot fetches a single screenshot from the emulator.
+// Used by FrameSource for interruptible polling (checking subscriber count between frames).
+func (c *Client) GetOneScreenshot(ctx context.Context, maxWidth int) (*Frame, error) {
+	imgFmt := &pb.ImageFormat{
+		Format: pb.ImageFormat_RGB888,
+	}
+	if maxWidth > 0 {
+		imgFmt.Width = uint32(maxWidth)
+	}
+
+	// Use per-call context but carry auth metadata from c.ctx.
+	md, _ := metadata.FromOutgoingContext(c.ctx)
+	callCtx := metadata.NewOutgoingContext(ctx, md)
+
+	img, err := c.client.GetScreenshot(callCtx, imgFmt)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Frame{
+		Data:   img.Image,
+		Width:  int32(img.Format.Width),
+		Height: int32(img.Format.Height),
+	}, nil
+}
+
 // Close shuts down the gRPC connection.
 func (c *Client) Close() error {
 	return c.conn.Close()

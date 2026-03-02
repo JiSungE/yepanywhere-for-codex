@@ -122,7 +122,10 @@ func runIPC(adbPath string) {
 	port := listener.Addr().(*net.TCPAddr).Port
 
 	stunServers := []string{"stun:stun.l.google.com:19302"}
-	handler := ipc.NewHandler(adbPath, stunServers)
+	handler := ipc.NewHandler(adbPath, stunServers, func() {
+		log.Println("Idle timeout reached (no sessions for 30s), shutting down")
+		os.Exit(0)
+	})
 
 	startedAt := time.Now()
 	mux := http.NewServeMux()

@@ -2,6 +2,7 @@ package emulator
 
 import (
 	"context"
+	"log"
 	"sync"
 	"sync/atomic"
 )
@@ -16,6 +17,7 @@ type Frame struct {
 }
 
 // FrameSource manages the screenshot stream and distributes frames to subscribers.
+// Polling automatically pauses when there are no subscribers and resumes when one arrives.
 type FrameSource struct {
 	client    *Client
 	maxWidth  int // passed to emulator for server-side scaling (0 = native)
@@ -24,10 +26,12 @@ type FrameSource struct {
 	subs      map[int]chan<- *Frame
 	nextID    int
 	cancel    context.CancelFunc
+	wakeup    chan struct{} // buffered(1), signaled on 0→1 subscriber transition
 }
 
 // NewFrameSource starts streaming screenshots and dispatching to subscribers.
 // maxWidth tells the emulator to scale frames server-side (0 = native resolution).
+// Polling is paused until the first subscriber arrives.
 func NewFrameSource(client *Client, maxWidth int) *FrameSource {
 	ctx, cancel := context.WithCancel(context.Background())
 	fs := &FrameSource{
@@ -35,6 +39,7 @@ func NewFrameSource(client *Client, maxWidth int) *FrameSource {
 		maxWidth: maxWidth,
 		subs:     make(map[int]chan<- *Frame),
 		cancel:   cancel,
+		wakeup:   make(chan struct{}, 1),
 	}
 	go fs.run(ctx)
 	return fs
@@ -52,6 +57,14 @@ func (fs *FrameSource) Subscribe() (id int, ch <-chan *Frame) {
 	fs.nextID++
 	c := make(chan *Frame, 2)
 	fs.subs[id] = c
+
+	// Wake up polling loop on 0→1 transition.
+	if len(fs.subs) == 1 {
+		select {
+		case fs.wakeup <- struct{}{}:
+		default:
+		}
+	}
 
 	// Replay the last frame so subscribers that join after the initial
 	// gRPC frame was received still get something to encode.
@@ -71,6 +84,9 @@ func (fs *FrameSource) Unsubscribe(id int) {
 		close(ch)
 		delete(fs.subs, id)
 	}
+	if len(fs.subs) == 0 {
+		log.Printf("[FrameSource] no subscribers, pausing polling")
+	}
 }
 
 // LastFrame returns the most recently received frame, or nil if none yet.
@@ -83,10 +99,36 @@ func (fs *FrameSource) Stop() {
 	fs.cancel()
 }
 
-func (fs *FrameSource) run(ctx context.Context) {
-	frames := fs.client.PollScreenshots(ctx, fs.maxWidth)
+func (fs *FrameSource) subscriberCount() int {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+	return len(fs.subs)
+}
 
-	for frame := range frames {
+func (fs *FrameSource) run(ctx context.Context) {
+	var seq uint32
+	for {
+		// Wait for at least one subscriber before polling.
+		if fs.subscriberCount() == 0 {
+			select {
+			case <-fs.wakeup:
+				log.Printf("[FrameSource] subscriber arrived, resuming polling")
+			case <-ctx.Done():
+				return
+			}
+		}
+
+		frame, err := fs.client.GetOneScreenshot(ctx, fs.maxWidth)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			log.Printf("[FrameSource] poll error: %v", err)
+			continue
+		}
+
+		seq++
+		frame.Seq = seq
 		fs.lastFrame.Store(frame)
 		fs.dispatch(frame)
 	}
