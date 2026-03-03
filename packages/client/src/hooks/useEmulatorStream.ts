@@ -10,6 +10,7 @@ import { generateUUID } from "../lib/uuid";
 import { QUALITY_TO_CRF, getEmulatorSettings } from "./useEmulatorSettings";
 
 const LOG_PREFIX = "[EmulatorStream]";
+const MAX_PROFILE_EVENT_HISTORY = 8;
 
 export type EmulatorConnectionState =
   | "idle"
@@ -17,6 +18,10 @@ export type EmulatorConnectionState =
   | "connected"
   | "disconnected"
   | "failed";
+
+export interface EmulatorProfileEvent extends DeviceStreamProfileEvent {
+  receivedAt: number;
+}
 
 interface UseEmulatorStreamResult {
   /** Ref to attach to a <video> element */
@@ -31,6 +36,8 @@ interface UseEmulatorStreamResult {
   error: string | null;
   /** Most recent adaptive profile event from server/sidecar */
   latestProfileEvent: DeviceStreamProfileEvent | null;
+  /** Most recent adaptive profile events (newest first, bounded). */
+  profileEventHistory: EmulatorProfileEvent[];
   /** Start streaming from the specified device */
   connect: (device: { id: string; type?: DeviceType }) => void;
   /** Stop streaming */
@@ -79,6 +86,9 @@ export function useEmulatorStream(): UseEmulatorStreamResult {
   const [error, setError] = useState<string | null>(null);
   const [latestProfileEvent, setLatestProfileEvent] =
     useState<DeviceStreamProfileEvent | null>(null);
+  const [profileEventHistory, setProfileEventHistory] = useState<
+    EmulatorProfileEvent[]
+  >([]);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -131,6 +141,7 @@ export function useEmulatorStream(): UseEmulatorStreamResult {
     setConnectionState("idle");
     setError(null);
     setLatestProfileEvent(null);
+    setProfileEventHistory([]);
   }, [getConnection]);
 
   const connect = useCallback(
@@ -147,6 +158,7 @@ export function useEmulatorStream(): UseEmulatorStreamResult {
       setConnectionState("connecting");
       setError(null);
       setLatestProfileEvent(null);
+      setProfileEventHistory([]);
       resetProfileTelemetrySink();
 
       const conn = getConnection();
@@ -342,7 +354,14 @@ export function useEmulatorStream(): UseEmulatorStreamResult {
             console.log(
               `${LOG_PREFIX} [${sid}] stream profile event: ${msg.direction} tier=${msg.tier}/${msg.totalTiers} ${msg.width}x${msg.height}@${msg.fps} bitrate=${msg.bitrate}`,
             );
+            const enriched = {
+              ...msg,
+              receivedAt: Date.now(),
+            } satisfies EmulatorProfileEvent;
             setLatestProfileEvent(msg);
+            setProfileEventHistory((prev) =>
+              [enriched, ...prev].slice(0, MAX_PROFILE_EVENT_HISTORY),
+            );
             publishProfileTelemetry(msg);
             break;
           }
@@ -422,6 +441,7 @@ export function useEmulatorStream(): UseEmulatorStreamResult {
     connectionState,
     error,
     latestProfileEvent,
+    profileEventHistory,
     connect,
     disconnect,
   };

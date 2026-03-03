@@ -121,6 +121,40 @@
   font-size: 0.8em;
 }
 
+.emulator-profile-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-bg-primary);
+}
+
+.emulator-profile-timeline-item {
+  display: flex;
+  gap: 8px;
+  font-size: 0.75em;
+  color: var(--app-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.emulator-profile-timeline-item.latest {
+  color: var(--app-text-primary);
+}
+
+.emulator-profile-timeline-time {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+.emulator-profile-timeline-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .emulator-stream-container {
   flex: 1;
   min-height: 0;

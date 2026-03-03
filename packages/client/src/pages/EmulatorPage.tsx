@@ -177,6 +177,7 @@ function StreamView({
     connectionState,
     error,
     latestProfileEvent,
+    profileEventHistory,
     connect,
     disconnect,
   } = useEmulatorStream();
@@ -209,11 +210,34 @@ function StreamView({
       </div>
 
       {latestProfileEvent && (
-        <div className="emulator-profile-state" data-testid="profile-event">
+        <div className="emulator-profile-state">
           Profile {latestProfileEvent.direction}: tier {latestProfileEvent.tier}/
           {latestProfileEvent.totalTiers} ({latestProfileEvent.width}x
           {latestProfileEvent.height}@{latestProfileEvent.fps}fps,{" "}
           {Math.round(latestProfileEvent.bitrate / 1000)} kbps)
+        </div>
+      )}
+
+      {profileEventHistory.length > 0 && (
+        <div className="emulator-profile-timeline" data-testid="profile-timeline">
+          {profileEventHistory.map((event, idx) => (
+            <div
+              key={`${event.receivedAt}-${event.direction}-${event.tier}-${idx}`}
+              className={`emulator-profile-timeline-item ${idx === 0 ? "latest" : ""}`}
+            >
+              <span className="emulator-profile-timeline-time">
+                {new Date(event.receivedAt).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                })}
+              </span>
+              <span className="emulator-profile-timeline-detail">
+                {event.direction} tier {event.tier}/{event.totalTiers} (
+                {event.width}x{event.height}@{event.fps})
+              </span>
+            </div>
+          ))}
         </div>
       )}
 
