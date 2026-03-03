@@ -10,11 +10,11 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { e2ePaths, expect, test } from "./fixtures.js";
+import { expect, test } from "./fixtures.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -68,43 +68,27 @@ function adaptiveProfileCycleEnabled(): boolean {
   return isTruthy(process.env.YEP_BRIDGE_TEST_ADAPTIVE_PROFILE_CYCLE);
 }
 
-function adaptiveProfileTransitionsFromServerLog(): Array<
-  "downshift" | "upshift"
-> {
-  const logPath = join(e2ePaths.dataDir, "logs", "e2e-server.log");
-  if (!existsSync(logPath)) {
-    return [];
-  }
-
-  const transitions: Array<"downshift" | "upshift"> = [];
-  let previousTier: number | null = null;
-  const lines = readFileSync(logPath, "utf8").split("\n");
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      const row = JSON.parse(trimmed) as { msg?: string };
-      const msg = row.msg ?? "";
-      const tierMatch = msg.match(/stream profile -> .* \(tier (\d+)\/(\d+)\)/);
-      if (!tierMatch) continue;
-      const tier = Number.parseInt(tierMatch[1] ?? "", 10);
-      if (!Number.isFinite(tier) || tier <= 0) continue;
-
-      if (previousTier == null) {
-        if (tier > 1) {
-          transitions.push("downshift");
-        }
-      } else if (tier > previousTier) {
-        transitions.push("downshift");
-      } else if (tier < previousTier) {
-        transitions.push("upshift");
+async function adaptiveProfileTransitionsFromClient(
+  page: import("@playwright/test").Page,
+): Promise<Array<"downshift" | "upshift">> {
+  return page.evaluate(() => {
+    const events = (
+      window as Window & {
+        __YEP_DEVICE_STREAM_PROFILE_EVENTS__?: Array<{
+          direction?: "downshift" | "upshift";
+        }>;
       }
-      previousTier = tier;
-    } catch {
-      // ignore non-JSON log rows
-    }
-  }
-  return transitions;
+    ).__YEP_DEVICE_STREAM_PROFILE_EVENTS__;
+
+    return (events ?? [])
+      .map((event) => event.direction)
+      .filter(
+        (
+          direction,
+        ): direction is "downshift" | "upshift" =>
+          direction === "downshift" || direction === "upshift",
+      );
+  });
 }
 
 async function assertAutoStreamConnects(
@@ -276,7 +260,7 @@ test("emits adaptive profile downshift/upshift events via APK transport override
   );
 
   await expect(async () => {
-    const transitions = adaptiveProfileTransitionsFromServerLog();
+    const transitions = await adaptiveProfileTransitionsFromClient(page);
     const downIndex = transitions.findIndex((d) => d === "downshift");
     const upIndex =
       downIndex >= 0

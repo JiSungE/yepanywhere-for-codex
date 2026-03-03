@@ -1,4 +1,8 @@
-import type { DeviceServerMessage, DeviceType } from "@yep-anywhere/shared";
+import type {
+  DeviceServerMessage,
+  DeviceStreamProfileEvent,
+  DeviceType,
+} from "@yep-anywhere/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getGlobalConnection } from "../lib/connection";
 import { getWebSocketConnection } from "../lib/connection/WebSocketConnection";
@@ -25,10 +29,35 @@ interface UseEmulatorStreamResult {
   connectionState: EmulatorConnectionState;
   /** Error message if connection failed */
   error: string | null;
+  /** Most recent adaptive profile event from server/sidecar */
+  latestProfileEvent: DeviceStreamProfileEvent | null;
   /** Start streaming from the specified device */
   connect: (device: { id: string; type?: DeviceType }) => void;
   /** Stop streaming */
   disconnect: () => void;
+}
+
+type ProfileTelemetryWindow = Window & {
+  __YEP_DEVICE_STREAM_PROFILE_EVENTS__?: DeviceStreamProfileEvent[];
+};
+
+function resetProfileTelemetrySink() {
+  if (typeof window === "undefined") return;
+  (window as ProfileTelemetryWindow).__YEP_DEVICE_STREAM_PROFILE_EVENTS__ = [];
+}
+
+function publishProfileTelemetry(event: DeviceStreamProfileEvent) {
+  if (typeof window === "undefined") return;
+  const w = window as ProfileTelemetryWindow;
+  const existing = w.__YEP_DEVICE_STREAM_PROFILE_EVENTS__ ?? [];
+  existing.push(event);
+  w.__YEP_DEVICE_STREAM_PROFILE_EVENTS__ = existing;
+  window.dispatchEvent(
+    new CustomEvent<DeviceStreamProfileEvent>(
+      "yep:device_stream_profile_event",
+      { detail: event },
+    ),
+  );
 }
 
 /**
@@ -48,6 +77,8 @@ export function useEmulatorStream(): UseEmulatorStreamResult {
   const [connectionState, setConnectionState] =
     useState<EmulatorConnectionState>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [latestProfileEvent, setLatestProfileEvent] =
+    useState<DeviceStreamProfileEvent | null>(null);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -99,6 +130,7 @@ export function useEmulatorStream(): UseEmulatorStreamResult {
     setDataChannel(null);
     setConnectionState("idle");
     setError(null);
+    setLatestProfileEvent(null);
   }, [getConnection]);
 
   const connect = useCallback(
@@ -114,6 +146,8 @@ export function useEmulatorStream(): UseEmulatorStreamResult {
       );
       setConnectionState("connecting");
       setError(null);
+      setLatestProfileEvent(null);
+      resetProfileTelemetrySink();
 
       const conn = getConnection();
 
@@ -303,6 +337,15 @@ export function useEmulatorStream(): UseEmulatorStreamResult {
             }
             break;
           }
+
+          case "device_stream_profile_event": {
+            console.log(
+              `${LOG_PREFIX} [${sid}] stream profile event: ${msg.direction} tier=${msg.tier}/${msg.totalTiers} ${msg.width}x${msg.height}@${msg.fps} bitrate=${msg.bitrate}`,
+            );
+            setLatestProfileEvent(msg);
+            publishProfileTelemetry(msg);
+            break;
+          }
         }
       });
       unsubRef.current = unsub ?? null;
@@ -378,6 +421,7 @@ export function useEmulatorStream(): UseEmulatorStreamResult {
     peerConnection: pcRef.current,
     connectionState,
     error,
+    latestProfileEvent,
     connect,
     disconnect,
   };

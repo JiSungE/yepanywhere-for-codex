@@ -148,6 +148,7 @@ export class RelayProtocol {
       case "device_webrtc_offer":
       case "device_ice_candidate_event":
       case "device_session_state":
+      case "device_stream_profile_event":
         this.handleEmulatorMessage(msg as DeviceServerMessage);
         break;
       default:

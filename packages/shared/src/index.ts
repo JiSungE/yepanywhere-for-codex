@@ -295,6 +295,7 @@ export type {
   DeviceWebRTCOffer,
   DeviceICECandidateEvent,
   DeviceSessionState,
+  DeviceStreamProfileEvent,
   DeviceServerMessage,
   RTCIceCandidateInit,
 } from "./devices.js";

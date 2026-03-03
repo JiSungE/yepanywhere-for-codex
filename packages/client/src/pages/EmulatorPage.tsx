@@ -176,6 +176,7 @@ function StreamView({
     peerConnection,
     connectionState,
     error,
+    latestProfileEvent,
     connect,
     disconnect,
   } = useEmulatorStream();
@@ -206,6 +207,15 @@ function StreamView({
           {deviceLabel(device)} - {connectionState}
         </span>
       </div>
+
+      {latestProfileEvent && (
+        <div className="emulator-profile-state" data-testid="profile-event">
+          Profile {latestProfileEvent.direction}: tier {latestProfileEvent.tier}/
+          {latestProfileEvent.totalTiers} ({latestProfileEvent.width}x
+          {latestProfileEvent.height}@{latestProfileEvent.fps}fps,{" "}
+          {Math.round(latestProfileEvent.bitrate / 1000)} kbps)
+        </div>
+      )}
 
       {error && <div className="emulator-error">{error}</div>}
 

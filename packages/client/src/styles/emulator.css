@@ -113,6 +113,14 @@
   text-transform: capitalize;
 }
 
+.emulator-profile-state {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-bg-secondary);
+  color: var(--app-text-secondary);
+  font-size: 0.8em;
+}
+
 .emulator-stream-container {
   flex: 1;
   min-height: 0;
