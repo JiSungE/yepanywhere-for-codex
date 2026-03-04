@@ -265,9 +265,8 @@ export class ClaudeSessionReader implements ISessionReader {
         model,
       );
 
-      // If the model from the JSONL isn't a Claude model, this session was
-      // created via claude-ollama (which uses the same SDK/JSONL format but
-      // routes to a local model like qwen3, llama, etc.)
+      // claude-ollama sessions use the same JSONL format but have non-Claude
+      // model IDs (e.g. "qwen3-coder-128k:latest" vs "claude-opus-4-5-20251101")
       const provider =
         model && !model.startsWith("claude-") ? "claude-ollama" : "claude";
 
