@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [site-v1.5.23] - 2026-03-15
+
+### Changed
+- Update Claude Agent SDK to 0.2.76 with runtime context window detection
+- Support SDK 0.2.76+ Agent tool format and subagents directory
+
 ## [site-v1.5.22] - 2026-03-15
 
 ### Changed

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.13] - 2026-03-15
+
+### Changed
+- Update Claude Agent SDK to 0.2.76 with runtime context window detection
+- Support SDK 0.2.76+ Agent tool format and subagents directory
+- Version-aware device bridge updates
+- Restore iOS simulator home button
+
 ## [0.4.12] - 2026-03-13
 
 ### Added
