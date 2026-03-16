@@ -191,20 +191,11 @@ export function ToolApprovalPanel({
 
   const [showPreviewModal, setShowPreviewModal] = useState(false);
 
-  // Only show "View details" when the tool input is large enough that the
-  // inline rendering would be truncated (inline renderers cap at ~12 lines)
-  const hasLargeInput = useMemo(() => {
-    if (!request.toolInput || typeof request.toolInput !== "object")
-      return false;
-    const input = request.toolInput as Record<string, unknown>;
-    let totalLines = 0;
-    for (const value of Object.values(input)) {
-      if (typeof value === "string") {
-        totalLines += value.split("\n").length;
-      }
-    }
-    return totalLines > 20;
-  }, [request.toolInput]);
+  // Only show "View details" when the approval summary text itself is too
+  // long to display inline. The full tool details (diffs, etc.) are already
+  // visible in the session stream above.
+  const summaryText = `Allow ${request.toolName ?? ""} ${summary ?? ""}?`;
+  const showViewDetails = summaryText.length > 120;
 
   const renderContext: RenderContext = useMemo(
     () => ({
@@ -263,7 +254,7 @@ export function ToolApprovalPanel({
                     </span>{" "}
                     {summary}?
                   </span>
-                  {hasLargeInput && (
+                  {showViewDetails && (
                     <button
                       type="button"
                       className="tool-approval-view-details"
