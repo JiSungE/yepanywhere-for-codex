@@ -334,7 +334,7 @@ export function createFilesRoutes(deps: FilesDeps): Hono {
     }
 
     // Get project
-    const project = await deps.scanner.getProject(projectId);
+    const project = await deps.scanner.getOrCreateProject(projectId);
     if (!project) {
       return c.json({ error: "Project not found" }, 404);
     }
@@ -436,7 +436,7 @@ export function createFilesRoutes(deps: FilesDeps): Hono {
     }
 
     // Get project
-    const project = await deps.scanner.getProject(projectId);
+    const project = await deps.scanner.getOrCreateProject(projectId);
     if (!project) {
       return c.json({ error: "Project not found" }, 404);
     }
