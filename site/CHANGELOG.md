@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [site-v1.5.24] - 2026-03-21
+
+### Added
+- Client-side i18n with lazy-loaded locale bundles (English, Chinese, Spanish, French, German, Japanese)
+- Language selector in Appearance settings
+
 ## [site-v1.5.23] - 2026-03-15
 
 ### Changed
