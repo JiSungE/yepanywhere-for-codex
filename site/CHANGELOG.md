@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [site-v1.5.25] - 2026-03-22
+
+### Fixed
+- Widen tool_result content type for broader SDK compatibility
+- Stabilize Claude persisted session rendering
+- Guard localStorage calls in i18n module
+- Prevent false unread notifications from late JSONL writes
+- Exclude progress messages from DAG to prevent dead branches
+
 ## [site-v1.5.24] - 2026-03-21
 
 ### Added

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.17] - 2026-03-22
+
+### Fixed
+- Widen tool_result content type for broader SDK compatibility
+- Stabilize Claude persisted session rendering
+- Guard localStorage calls in i18n module
+- Prevent false unread notifications from late JSONL writes
+- Exclude progress messages from DAG to prevent dead branches
+
 ## [0.4.16] - 2026-03-21
 
 ### Added
