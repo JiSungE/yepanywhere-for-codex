@@ -11,10 +11,11 @@
  * - Server is killed when session is aborted or times out
  */
 
-import { type ChildProcess, execSync, spawn } from "node:child_process";
+import { type ChildProcess, exec, execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type {
   ModelInfo,
@@ -33,6 +34,8 @@ import type {
   AuthStatus,
   StartSessionOptions,
 } from "./types.js";
+const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * Configuration for OpenCode provider.
@@ -80,7 +83,7 @@ export class OpenCodeProvider implements AgentProvider {
    * Check if the OpenCode CLI is installed.
    */
   async isInstalled(): Promise<boolean> {
-    const path = this.findOpenCodePath();
+    const path = await this.findOpenCodePath();
     return path !== null;
   }
 
@@ -119,13 +122,13 @@ export class OpenCodeProvider implements AgentProvider {
    * Queries the OpenCode CLI for available models.
    */
   async getAvailableModels(): Promise<ModelInfo[]> {
-    const opencodePath = this.findOpenCodePath();
+    const opencodePath = await this.findOpenCodePath();
     if (!opencodePath) {
       return [];
     }
 
     try {
-      const result = execSync(`${opencodePath} models`, {
+      const { stdout: result } = await execFileAsync(opencodePath, ["models"], {
         encoding: "utf-8",
         timeout: 10000,
       });
@@ -195,7 +198,7 @@ export class OpenCodeProvider implements AgentProvider {
     pidRef: { value?: number },
   ): AsyncIterableIterator<SDKMessage> {
     const log = getLogger();
-    const opencodePath = this.findOpenCodePath();
+    const opencodePath = await this.findOpenCodePath();
 
     if (!opencodePath) {
       yield {
@@ -716,7 +719,7 @@ export class OpenCodeProvider implements AgentProvider {
   /**
    * Find the OpenCode CLI path.
    */
-  private findOpenCodePath(): string | null {
+  private async findOpenCodePath(): Promise<string | null> {
     // Use configured path if provided
     if (this.opencodePath && existsSync(this.opencodePath)) {
       return this.opencodePath;
@@ -737,9 +740,10 @@ export class OpenCodeProvider implements AgentProvider {
 
     // Try to find in PATH using which
     try {
-      const result = execSync(whichCommand("opencode"), {
+      const { stdout } = await execAsync(whichCommand("opencode"), {
         encoding: "utf-8",
-      }).trim();
+      });
+      const result = stdout.trim();
       if (result && existsSync(result)) {
         return result;
       }

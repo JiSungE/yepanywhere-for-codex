@@ -5,12 +5,13 @@
  * It spawns the Gemini CLI process and parses its JSON stream output.
  */
 
-import { type ChildProcess, execSync, spawn } from "node:child_process";
+import { type ChildProcess, exec, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
+import { promisify } from "node:util";
 import type {
   GeminiEvent,
   GeminiInitEvent,
@@ -22,6 +23,7 @@ import type {
   ModelInfo,
 } from "@yep-anywhere/shared";
 import { whichCommand } from "../cli-detection.js";
+const execAsync = promisify(exec);
 
 /** Standard Gemini models (always available) */
 const GEMINI_MODELS: ModelInfo[] = [
@@ -90,7 +92,7 @@ export class GeminiProvider implements AgentProvider {
    * Check if the Gemini CLI is installed.
    */
   async isInstalled(): Promise<boolean> {
-    const path = this.findGeminiPath();
+    const path = await this.findGeminiPath();
     return path !== null;
   }
 
@@ -192,7 +194,7 @@ export class GeminiProvider implements AgentProvider {
     pidRef: { value?: number },
   ): AsyncIterableIterator<SDKMessage> {
     console.log("[GeminiProvider] Starting NON-ACP session (stream-json mode)");
-    const geminiPath = this.findGeminiPath();
+    const geminiPath = await this.findGeminiPath();
     if (!geminiPath) {
       yield {
         type: "error",
@@ -592,7 +594,7 @@ export class GeminiProvider implements AgentProvider {
   /**
    * Find the Gemini CLI path.
    */
-  private findGeminiPath(): string | null {
+  private async findGeminiPath(): Promise<string | null> {
     // Use configured path if provided
     if (this.geminiPath && existsSync(this.geminiPath)) {
       return this.geminiPath;
@@ -614,9 +616,10 @@ export class GeminiProvider implements AgentProvider {
 
     // Try to find in PATH using which
     try {
-      const result = execSync(whichCommand("gemini"), {
+      const { stdout } = await execAsync(whichCommand("gemini"), {
         encoding: "utf-8",
-      }).trim();
+      });
+      const result = stdout.trim();
       if (result && existsSync(result)) {
         return result;
       }

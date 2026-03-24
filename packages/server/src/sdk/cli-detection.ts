@@ -1,8 +1,11 @@
-import { execSync } from "node:child_process";
+import { exec, execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import * as os from "node:os";
+import { promisify } from "node:util";
 
 const isWindows = os.platform() === "win32";
+const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * Returns the platform-appropriate command to locate an executable in PATH.
@@ -63,20 +66,18 @@ export interface CodexCliInfo {
  *
  * @returns Information about the CLI installation
  */
-export function detectCodexCli(): CodexCliInfo {
+export async function detectCodexCli(): Promise<CodexCliInfo> {
   const whichCmd = whichCommand("codex");
 
   // Try to find codex in PATH
   try {
-    const codexPath = execSync(whichCmd, {
+    const { stdout } = await execAsync(whichCmd, {
       encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-    })
-      .split("\n")[0]
-      ?.trim();
+    });
+    const codexPath = stdout.split("\n")[0]?.trim();
 
     if (codexPath) {
-      const version = getCodexVersion(codexPath);
+      const version = await getCodexVersion(codexPath);
       return { found: true, path: codexPath, version };
     }
   } catch {
@@ -102,7 +103,7 @@ export function detectCodexCli(): CodexCliInfo {
 
   for (const path of commonPaths) {
     if (existsSync(path)) {
-      const version = getCodexVersion(path);
+      const version = await getCodexVersion(path);
       if (version) {
         return { found: true, path, version };
       }
@@ -118,12 +119,12 @@ export function detectCodexCli(): CodexCliInfo {
 /**
  * Get the version of the Codex CLI at the given path.
  */
-function getCodexVersion(codexPath: string): string | undefined {
+async function getCodexVersion(codexPath: string): Promise<string | undefined> {
   try {
-    const output = execSync(`"${codexPath}" --version`, {
+    const { stdout } = await execFileAsync(codexPath, ["--version"], {
       encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-    }).trim();
+    });
+    const output = stdout.trim();
     return output;
   } catch {
     return undefined;

@@ -1,23 +1,25 @@
-import { execSync } from "node:child_process";
+import { exec } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { Hono } from "hono";
 import { isNewerSemver } from "../utils/semver.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const execAsync = promisify(exec);
 
 /**
  * Get version from git describe (for dev mode)
  * Returns something like "v0.1.7" or "v0.1.7-3-g050bfd2" (3 commits after tag)
  */
-function getGitVersion(): string | null {
+async function getGitVersion(): Promise<string | null> {
   try {
-    const version = execSync("git describe --tags --always", {
+    const { stdout } = await execAsync("git describe --tags --always", {
       encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-    }).trim();
+    });
+    const version = stdout.trim();
     return version?.replace(/^v/, "") || null;
   } catch {
     return null;
@@ -27,7 +29,7 @@ function getGitVersion(): string | null {
 /**
  * Read the current package version from package.json
  */
-function getCurrentVersion(): string {
+async function getCurrentVersion(): Promise<string> {
   try {
     // In production (npm package), package.json is in the parent of dist/
     // In development, it's in packages/server/
@@ -37,7 +39,7 @@ function getCurrentVersion(): string {
 
     // 0.0.1 is the workspace version - we're in dev mode, use git instead
     if (version === "0.0.1") {
-      return getGitVersion() || "dev";
+      return (await getGitVersion()) || "dev";
     }
 
     return version;
@@ -208,19 +210,19 @@ export function getServerCapabilities(options?: VersionRouteOptions): string[] {
 
 export function getServerCompatibilityInfo(
   options?: VersionRouteOptions,
-): ServerCompatibilityInfo {
-  return {
-    appVersion: getCurrentVersion(),
+): Promise<ServerCompatibilityInfo> {
+  return getCurrentVersion().then((appVersion) => ({
+    appVersion,
     resumeProtocolVersion: RESUME_PROTOCOL_VERSION,
     capabilities: getServerCapabilities(options),
-  };
+  }));
 }
 
 export function createVersionRoutes(options?: VersionRouteOptions): Hono {
   const routes = new Hono();
 
   routes.get("/", async (c) => {
-    const current = getCurrentVersion();
+    const current = await getCurrentVersion();
     const fresh =
       c.req.query("fresh") === "1" || c.req.query("fresh") === "true";
     const deviceBridgeStatus = options?.getDeviceBridgeStatus
