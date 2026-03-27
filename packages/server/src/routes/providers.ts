@@ -17,7 +17,6 @@ interface ProviderRouteDeps {
  */
 export function createProvidersRoutes(deps: ProviderRouteDeps = {}): Hono {
   const routes = new Hono();
-
   // GET /api/providers - Get all available providers with auth status and models
   routes.get("/", async (c) => {
     let providers = getAllProviders();

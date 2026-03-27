@@ -5,7 +5,8 @@
  * server-initiated permission requests (command/file approval).
  */
 
-import { type ChildProcess, execSync, spawn } from "node:child_process";
+import { type ChildProcess, exec, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import type { ModelInfo } from "@yep-anywhere/shared";
 import {
   isCodexCorrelationDebugEnabled,
@@ -57,6 +58,7 @@ import type {
 } from "./types.js";
 
 const log = getLogger().child({ component: "codex-provider" });
+const execAsync = promisify(exec);
 
 function logSdkCorrelationDebug(
   sessionId: string,
@@ -101,6 +103,7 @@ const MODEL_CACHE_TTL_MS = 60 * 60 * 1000;
 const MODEL_LIST_TIMEOUT_MS = 8000;
 const APP_SERVER_INIT_REQUEST_ID = 1;
 const APP_SERVER_MODEL_LIST_REQUEST_ID = 2;
+const APP_SERVER_SHUTDOWN_GRACE_MS = 1500;
 
 /**
  * Local debug knobs for Codex app-server policy behavior.
@@ -180,6 +183,45 @@ interface TokenUsageSnapshot {
 interface CodexTurnRuntimeState {
   threadId: string;
   activeTurnId: string | null;
+}
+
+async function terminateChildProcess(
+  child: ChildProcess | null | undefined,
+  graceMs = APP_SERVER_SHUTDOWN_GRACE_MS,
+): Promise<void> {
+  if (!child?.pid || child.killed || child.exitCode !== null) {
+    return;
+  }
+
+  const exited = new Promise<void>((resolve) => {
+    child.once("exit", () => resolve());
+  });
+
+  const killTarget =
+    process.platform !== "win32" && child.pid > 0 ? -child.pid : child.pid;
+
+  try {
+    process.kill(killTarget, "SIGTERM");
+  } catch {
+    return;
+  }
+
+  const timer = setTimeout(() => {
+    if (child.exitCode !== null || child.killed) {
+      return;
+    }
+    try {
+      process.kill(killTarget, "SIGKILL");
+    } catch {
+      // Ignore escalation failures during shutdown.
+    }
+  }, graceMs);
+
+  try {
+    await exited;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 interface NormalizedFileChange {
@@ -318,6 +360,11 @@ class CodexAppServerClient {
   get pid(): number | undefined {
     return this.process?.pid;
   }
+
+  isAlive(): boolean {
+    const child = this.process;
+    return Boolean(child?.pid && child.exitCode === null && !child.killed);
+  }
   private nextRequestId = 1;
   private readonly pendingRequests = new Map<
     JsonRpcId,
@@ -347,6 +394,7 @@ class CodexAppServerClient {
 
     const child = spawn(this.command, ["app-server", "--listen", "stdio://"], {
       cwd: this.cwd,
+      detached: process.platform !== "win32",
       stdio: ["pipe", "pipe", "pipe"],
       env: this.env,
       shell: process.platform === "win32",
@@ -528,15 +576,9 @@ class CodexAppServerClient {
     this.pendingRequests.clear();
     this.notifications.close(closeError);
 
-    if (this.process && !this.process.killed) {
-      try {
-        this.process.kill("SIGTERM");
-      } catch {
-        // Ignore process shutdown errors.
-      }
-    }
-
+    const child = this.process;
     this.process = null;
+    void terminateChildProcess(child);
   }
 
   private handleProcessClose(error: Error): void {
@@ -604,9 +646,12 @@ export class CodexProvider implements AgentProvider {
   /**
    * Check if Codex CLI is installed by looking for it in PATH.
    */
-  private isCodexCliInstalled(): boolean {
+  private async isCodexCliInstalled(): Promise<boolean> {
+    if (this.config.codexPath) {
+      return true;
+    }
     try {
-      execSync(whichCommand("codex"), { stdio: "ignore" });
+      await execAsync(whichCommand("codex"), { encoding: "utf-8" });
       return true;
     } catch {
       return false;
@@ -646,7 +691,7 @@ export class CodexProvider implements AgentProvider {
    * If Codex CLI is installed, assume it's authenticated.
    */
   async getAuthStatus(): Promise<AuthStatus> {
-    const installed = this.isCodexCliInstalled();
+    const installed = await this.isCodexCliInstalled();
     return {
       installed,
       authenticated: installed,
@@ -665,7 +710,7 @@ export class CodexProvider implements AgentProvider {
     }
 
     let models: ModelInfo[] = [];
-    if (this.isCodexCliInstalled()) {
+    if (await this.isCodexCliInstalled()) {
       models = await this.getModelsFromAppServer();
     }
 
@@ -701,6 +746,7 @@ export class CodexProvider implements AgentProvider {
         codexCommand,
         ["app-server", "--listen", "stdio://"],
         {
+          detached: process.platform !== "win32",
           stdio: ["pipe", "pipe", "pipe"],
           env: this.getCodexEnv(),
           shell: process.platform === "win32",
@@ -715,11 +761,7 @@ export class CodexProvider implements AgentProvider {
         if (settled) return;
         settled = true;
         clearTimeout(timeoutHandle);
-        try {
-          child.kill("SIGTERM");
-        } catch {
-          // Ignore - process may have already exited.
-        }
+        void terminateChildProcess(child);
         handler();
       };
 
@@ -982,6 +1024,7 @@ export class CodexProvider implements AgentProvider {
         abortController.abort();
         activeClient?.close();
       },
+      isProcessAlive: () => activeClient?.isAlive() ?? false,
       get pid() {
         return activeClient?.pid;
       },

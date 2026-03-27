@@ -247,14 +247,14 @@ function readExpectedCodexVersionFromPackageJson(): string | null {
   return null;
 }
 
-function warnIfCodexVersionMismatch(): void {
+async function warnIfCodexVersionMismatch(): Promise<void> {
   const expectedRaw = readExpectedCodexVersionFromPackageJson();
   if (!expectedRaw) {
     return;
   }
 
   const expected = parseCodexVersion(expectedRaw) ?? expectedRaw;
-  const codexInfo = detectCodexCli();
+  const codexInfo = await detectCodexCli();
   if (!codexInfo.found || !codexInfo.version) {
     return;
   }
@@ -269,7 +269,7 @@ function warnIfCodexVersionMismatch(): void {
   );
 }
 
-warnIfCodexVersionMismatch();
+await warnIfCodexVersionMismatch();
 
 // Create the real SDK
 const realSdk = new RealClaudeSDK();
@@ -622,7 +622,7 @@ async function startServer() {
   async function updateRelayConnection() {
     const relayConfig = remoteAccessService.getRelayConfig();
     if (relayConfig?.url && relayConfig?.username) {
-      const compatibility = getServerCompatibilityInfo({
+      const compatibility = await getServerCompatibilityInfo({
         getDeviceBridgeState: () => {
           if (!deviceBridgeService) return "unavailable";
           return deviceBridgeService.hasBinary() ? "available" : "downloadable";

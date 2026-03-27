@@ -7,11 +7,12 @@
  * yepanywhere's InputRequest format and routing through the Process approval flow.
  */
 
-import { execSync, spawn } from "node:child_process";
+import { exec, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import type {
   RequestPermissionRequest,
   RequestPermissionResponse,
@@ -22,6 +23,7 @@ import type {
 import type { ModelInfo } from "@yep-anywhere/shared";
 import { getLogger } from "../../logging/logger.js";
 import { whichCommand } from "../cli-detection.js";
+const execAsync = promisify(exec);
 import { MessageQueue } from "../messageQueue.js";
 import type {
   CanUseTool,
@@ -106,7 +108,7 @@ export class GeminiACPProvider implements AgentProvider {
    * Check if the Gemini CLI is installed.
    */
   async isInstalled(): Promise<boolean> {
-    const path = this.findGeminiPath();
+    const path = await this.findGeminiPath();
     return path !== null;
   }
 
@@ -258,7 +260,7 @@ export class GeminiACPProvider implements AgentProvider {
     queue: MessageQueue,
     signal: AbortSignal,
   ): AsyncIterableIterator<SDKMessage> {
-    const geminiPath = this.findGeminiPath();
+    const geminiPath = await this.findGeminiPath();
     if (!geminiPath) {
       yield {
         type: "error",
@@ -899,7 +901,7 @@ export class GeminiACPProvider implements AgentProvider {
   /**
    * Find the Gemini CLI path.
    */
-  private findGeminiPath(): string | null {
+  private async findGeminiPath(): Promise<string | null> {
     // Use configured path if provided
     if (this.geminiPath && existsSync(this.geminiPath)) {
       return this.geminiPath;
@@ -921,9 +923,10 @@ export class GeminiACPProvider implements AgentProvider {
 
     // Try to find in PATH using which
     try {
-      const result = execSync(whichCommand("gemini"), {
+      const { stdout } = await execAsync(whichCommand("gemini"), {
         encoding: "utf-8",
-      }).trim();
+      });
+      const result = stdout.trim();
       if (result && existsSync(result)) {
         return result;
       }

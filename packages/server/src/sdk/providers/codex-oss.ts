@@ -11,8 +11,7 @@
  * See docs/research/codex-local-models.md for background.
  */
 
-import { type ChildProcess, execSync, spawn } from "node:child_process";
-import { exec } from "node:child_process";
+import { type ChildProcess, exec, execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -37,6 +36,7 @@ import type {
 
 const log = getLogger().child({ component: "codex-oss-provider" });
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * Configuration for CodexOSS provider.
@@ -189,7 +189,7 @@ export class CodexOSSProvider implements AgentProvider {
    * Check if Codex CLI is installed.
    */
   async isInstalled(): Promise<boolean> {
-    return this.findCodexPath() !== null;
+    return (await this.findCodexPath()) !== null;
   }
 
   /**
@@ -322,7 +322,7 @@ export class CodexOSSProvider implements AgentProvider {
     signal: AbortSignal,
     pidRef: { value?: number },
   ): AsyncIterableIterator<SDKMessage> {
-    const codexPath = this.findCodexPath();
+    const codexPath = await this.findCodexPath();
     if (!codexPath) {
       yield {
         type: "error",
@@ -1022,7 +1022,7 @@ export class CodexOSSProvider implements AgentProvider {
   /**
    * Find codex binary path.
    */
-  private findCodexPath(): string | null {
+  private async findCodexPath(): Promise<string | null> {
     if (this.codexPath && existsSync(this.codexPath)) {
       return this.codexPath;
     }
@@ -1038,9 +1038,10 @@ export class CodexOSSProvider implements AgentProvider {
     }
 
     try {
-      const result = execSync(whichCommand("codex"), {
+      const { stdout } = await execAsync(whichCommand("codex"), {
         encoding: "utf-8",
-      }).trim();
+      });
+      const result = stdout.trim();
       if (result && existsSync(result)) return result;
     } catch {
       // Not in PATH

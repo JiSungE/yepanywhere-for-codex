@@ -63,6 +63,7 @@ interface CodexSessionFile {
   timestamp: string;
   mtime: number;
   size: number;
+  isSubagent: boolean;
 }
 
 const CODEX_META_READ_MAX_BYTES = 1024 * 1024;
@@ -296,12 +297,31 @@ export class CodexSessionReader implements ISessionReader {
     }
 
     this.cacheTimestamp = Date.now();
-    return sessions;
+    return sessions.filter((session) => !session.isSubagent);
   }
 
   async getSessionFilePath(sessionId: string): Promise<string | null> {
     const sessionFile = await this.findSessionFile(sessionId);
     return sessionFile?.filePath ?? null;
+  }
+
+  getIndexScopeKey(sessionDir: string): string {
+    return `codex::${sessionDir}::${this.projectPath ?? "*"}`;
+  }
+
+  async listSessionFiles(
+    _sessionDir: string,
+  ): Promise<{ sessionId: string; filePath: string }[]> {
+    const sessions = await this.scanSessions();
+
+    return sessions
+      .filter((session) =>
+        this.projectPath ? session.cwd === this.projectPath : true,
+      )
+      .map((session) => ({
+        sessionId: session.id,
+        filePath: session.filePath,
+      }));
   }
 
   /**
@@ -370,10 +390,34 @@ export class CodexSessionReader implements ISessionReader {
         timestamp: meta.timestamp,
         mtime: stats.mtimeMs,
         size: stats.size,
+        isSubagent: this.isSubagentSessionMeta(meta),
       };
     } catch {
       return null;
     }
+  }
+
+  private isSubagentSessionMeta(
+    meta: CodexSessionMetaEntry["payload"],
+  ): boolean {
+    if (
+      !("forked_from_id" in meta) ||
+      typeof meta.forked_from_id !== "string"
+    ) {
+      return false;
+    }
+
+    const source = meta.source;
+    if (!source || typeof source !== "object") return false;
+
+    const subagentSource = source as {
+      subagent?: { thread_spawn?: { parent_thread_id?: string } };
+    };
+
+    return (
+      typeof subagentSource.subagent?.thread_spawn?.parent_thread_id ===
+      "string"
+    );
   }
 
   /**
