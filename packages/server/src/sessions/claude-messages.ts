@@ -63,6 +63,20 @@ function collectHistoricalQueueEntries(
   return historicalEntries;
 }
 
+function insertEntryByLineIndex(
+  entries: Array<{ lineIndex: number; raw: ClaudeSessionEntry }>,
+  entry: { lineIndex: number; raw: ClaudeSessionEntry },
+): void {
+  const insertAt = entries.findIndex(
+    (existing) => existing.lineIndex > entry.lineIndex,
+  );
+  if (insertAt === -1) {
+    entries.push(entry);
+    return;
+  }
+  entries.splice(insertAt, 0, entry);
+}
+
 export function collectVisibleClaudeEntries(
   rawMessages: ClaudeSessionEntry[],
   options: NormalizeClaudeEntriesOptions = {},
@@ -148,10 +162,14 @@ export function collectVisibleClaudeEntries(
   }
 
   for (const queuedEntry of collectHistoricalQueueEntries(rawMessages)) {
+    const beforeLength = entries.length;
     pushUnique(queuedEntry.raw, queuedEntry.lineIndex);
-  }
+    if (entries.length === beforeLength) continue;
 
-  entries.sort((left, right) => left.lineIndex - right.lineIndex);
+    const appended = entries.pop();
+    if (!appended) continue;
+    insertEntryByLineIndex(entries, appended);
+  }
 
   return {
     entries: entries.map((entry) => entry.raw),
