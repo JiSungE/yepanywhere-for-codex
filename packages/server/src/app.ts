@@ -5,6 +5,7 @@ import type { AuthService } from "./auth/AuthService.js";
 import { createAuthRoutes } from "./auth/routes.js";
 import type { DeviceBridgeService } from "./device/DeviceBridgeService.js";
 import type { FrontendProxy } from "./frontend/index.js";
+import { localizeJsonResponses } from "./i18n.js";
 import type { SessionIndexService } from "./indexes/index.js";
 import type {
   ProjectMetadataService,
@@ -195,6 +196,7 @@ export function createApp(options: AppOptions): AppResult {
   const app = new Hono<{ Bindings: HttpBindings }>();
 
   // Security middleware: host validation, CORS, custom header requirement
+  app.use("/api/*", localizeJsonResponses);
   app.use("/api/*", hostCheckMiddleware);
   app.use("/api/*", corsMiddleware);
   app.use("/api/*", requireCustomHeader);

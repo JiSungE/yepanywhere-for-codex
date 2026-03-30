@@ -1,4 +1,5 @@
 import { memo, useMemo, useState } from "react";
+import { useOptionalI18n } from "../../i18n";
 import {
   getDisplayBashCommandFromInput,
   isCodexLikeBashInput,
@@ -25,15 +26,19 @@ export const ToolCallRow = memo(function ToolCallRow({
   status,
   sessionProvider,
 }: Props) {
+  const { locale, t } = useOptionalI18n();
+
   // Create a minimal render context for tool renderers
   const renderContext: RenderContext = useMemo(
     () => ({
       isStreaming: status === "pending",
       theme: "dark",
+      locale,
+      t,
       toolUseId: id,
       provider: sessionProvider,
     }),
-    [status, id, sessionProvider],
+    [status, locale, t, id, sessionProvider],
   );
 
   // Get structured result for interactive summary
@@ -111,8 +116,8 @@ export const ToolCallRow = memo(function ToolCallRow({
   );
 
   const summary = useMemo(() => {
-    return getToolSummary(toolName, toolInput, toolResult, status);
-  }, [toolName, toolInput, toolResult, status]);
+    return getToolSummary(toolName, toolInput, toolResult, status, t);
+  }, [toolName, toolInput, toolResult, status, t]);
 
   const handleToggle = () => {
     if (!isNonExpandable) {
@@ -152,12 +157,12 @@ export const ToolCallRow = memo(function ToolCallRow({
         tabIndex={isNonExpandable ? undefined : 0}
       >
         {status === "pending" && (
-          <span className="tool-spinner" aria-label="Running">
+          <span className="tool-spinner" aria-label={t("thinkingLabel")}>
             <Spinner />
           </span>
         )}
         {status === "aborted" && (
-          <span className="tool-aborted-icon" aria-label="Interrupted">
+          <span className="tool-aborted-icon" aria-label={t("toolInterrupted")}>
             ⨯
           </span>
         )}
@@ -174,7 +179,10 @@ export const ToolCallRow = memo(function ToolCallRow({
           <span className="tool-summary">
             {summary}
             {status === "aborted" && (
-              <span className="tool-aborted-label"> (interrupted)</span>
+              <span className="tool-aborted-label">
+                {" "}
+                ({t("toolInterruptedLower")})
+              </span>
             )}
           </span>
         ) : null}

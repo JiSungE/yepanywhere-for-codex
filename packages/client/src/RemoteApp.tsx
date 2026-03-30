@@ -36,6 +36,7 @@ import { useReloadNotifications } from "./hooks/useReloadNotifications";
 import { useRemoteActivityBusConnection } from "./hooks/useRemoteActivityBusConnection";
 import { useRemoteBasePath } from "./hooks/useRemoteBasePath";
 import { useVersion } from "./hooks/useVersion";
+import { useI18n } from "./i18n";
 import { connectionManager } from "./lib/connection";
 import { initClientLogCollection } from "./lib/diagnostics";
 
@@ -49,6 +50,7 @@ interface Props {
  * RelayConnectionGate (relay mode) once connected.
  */
 export function ConnectedAppContent({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   useRemoteActivityBusConnection();
   const { currentRelayUsername } = useRemoteConnection();
   const { version: versionInfo } = useVersion();
@@ -71,25 +73,32 @@ export function ConnectedAppContent({ children }: { children: ReactNode }) {
     if (!versionInfo) return false;
     return (versionInfo.resumeProtocolVersion ?? 1) < 2;
   }, [dismissedRelayResumeWarning, currentRelayUsername, versionInfo]);
+  const serverUpdateDescriptionParts = useMemo(
+    () =>
+      t("remoteAppServerUpdateDescription", {
+        host: "{host}",
+      }).split("{host}"),
+    [t],
+  );
 
   return (
     <>
       {showRelayResumeWarning && (
         <Modal
-          title="Server Update Required"
+          title={t("remoteAppServerUpdateRequired")}
           onClose={() => setDismissedRelayResumeWarning(true)}
         >
           <div className="host-offline-modal-content">
             <p className="host-offline-message">
-              The server on <strong>{currentRelayUsername}</strong> needs to be
-              updated for improved session resume security. Until then, you'll
-              need to log in again after refreshing or reconnecting.
+              {serverUpdateDescriptionParts[0]}
+              <strong>{currentRelayUsername}</strong>
+              {serverUpdateDescriptionParts[1] ?? ""}
             </p>
             <p className="host-offline-detail">
               <code>npm update -g yepanywhere</code>
             </p>
             <p className="host-offline-hint">
-              Then restart the server and reconnect.
+              {t("remoteAppServerUpdateHint")}
             </p>
             <div className="host-offline-actions">
               <button
@@ -97,7 +106,7 @@ export function ConnectedAppContent({ children }: { children: ReactNode }) {
                 className="btn-primary"
                 onClick={() => setDismissedRelayResumeWarning(true)}
               >
-                OK
+                {t("commonOk")}
               </button>
             </div>
           </div>
@@ -151,6 +160,7 @@ export function UnauthenticatedGate() {
  * - Connected: render ConnectedAppContent + child routes
  */
 export function ConnectionGate() {
+  const { t } = useI18n();
   const {
     connection,
     isAutoResuming,
@@ -171,7 +181,7 @@ export function ConnectionGate() {
     return (
       <div className="auto-resume-loading">
         <div className="loading-spinner" />
-        <p>Reconnecting...</p>
+        <p>{t("remoteLoginReconnect")}</p>
       </div>
     );
   }

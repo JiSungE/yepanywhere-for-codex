@@ -12,6 +12,8 @@
  *   <ThinkingIndicator variant="pill" label="Running" />
  */
 
+import { useOptionalI18n } from "../i18n";
+
 interface ThinkingIndicatorProps {
   /** Visual variant - "dot" for compact, "pill" for badge with text */
   variant?: "dot" | "pill";
@@ -23,16 +25,18 @@ interface ThinkingIndicatorProps {
 
 export function ThinkingIndicator({
   variant = "dot",
-  label = "Thinking",
+  label,
   className,
 }: ThinkingIndicatorProps) {
+  const { t } = useOptionalI18n();
+  const resolvedLabel = label ?? t("thinkingLabel");
   const dot = <span className="thinking-indicator-dot" />;
 
   if (variant === "pill") {
     return (
       <span className={`thinking-indicator-pill ${className ?? ""}`}>
         {dot}
-        <span className="thinking-indicator-label">{label}</span>
+        <span className="thinking-indicator-label">{resolvedLabel}</span>
       </span>
     );
   }

@@ -1,4 +1,5 @@
 import type { DeviceType } from "@yep-anywhere/shared";
+import { useOptionalI18n } from "../i18n";
 
 interface EmulatorNavButtonsProps {
   /** WebRTC DataChannel for sending key events */
@@ -14,6 +15,7 @@ export function EmulatorNavButtons({
   dataChannel,
   deviceType,
 }: EmulatorNavButtonsProps) {
+  const { t } = useOptionalI18n();
   const showAndroidNav = deviceType === "emulator" || deviceType === "android";
   const showIOSHome = deviceType === "ios-simulator";
 
@@ -36,8 +38,8 @@ export function EmulatorNavButtons({
           className="emulator-nav-btn"
           onClick={() => sendKey("GoBack")}
           disabled={disabled}
-          title="Back"
-          aria-label="Back"
+          title={t("actionBack")}
+          aria-label={t("actionBack")}
         >
           <svg
             width="24"
@@ -59,8 +61,8 @@ export function EmulatorNavButtons({
         className="emulator-nav-btn"
         onClick={() => sendKey("GoHome")}
         disabled={disabled}
-        title="Home"
-        aria-label="Home"
+        title={t("emulatorNavHome")}
+        aria-label={t("emulatorNavHome")}
       >
         <svg
           width="24"
@@ -82,8 +84,8 @@ export function EmulatorNavButtons({
           className="emulator-nav-btn"
           onClick={() => sendKey("AppSwitch")}
           disabled={disabled}
-          title="Recents"
-          aria-label="Recents"
+          title={t("emulatorNavRecents")}
+          aria-label={t("emulatorNavRecents")}
         >
           <svg
             width="24"

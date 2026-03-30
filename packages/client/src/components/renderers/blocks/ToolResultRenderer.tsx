@@ -20,7 +20,8 @@ function ToolResultRendererComponent({
 }) {
   // Look up the corresponding tool_use to get the tool name
   const toolUse = context.getToolUse?.(block.tool_use_id);
-  const toolName = toolUse?.name || "Unknown";
+  const toolName =
+    toolUse?.name || context.t?.("toolResultUnknown") || "Unknown";
   const isError = block.is_error === true;
 
   // Prefer structured toolUseResult if available, otherwise try to parse content
@@ -39,7 +40,11 @@ function ToolResultRendererComponent({
       <div className="tool-header">
         <span className="tool-icon">{"<"}</span>
         <span className="tool-name">{toolName}</span>
-        {isError && <span className="badge badge-error">Error</span>}
+        {isError && (
+          <span className="badge badge-error">
+            {context.t?.("toolResultError") ?? "Error"}
+          </span>
+        )}
       </div>
       <div className="tool-content">
         {toolRegistry.renderToolResult(

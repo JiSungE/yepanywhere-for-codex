@@ -38,6 +38,7 @@ import {
   isSrpSessionResumed,
 } from "@yep-anywhere/shared";
 import { getRelayDebugEnabled } from "../../hooks/useDeveloperMode";
+import { getRequestLocale } from "../../i18n";
 import { getOrCreateBrowserProfileId } from "../storageKeys";
 import { RelayProtocol } from "./RelayProtocol";
 import {
@@ -400,6 +401,7 @@ export class SecureConnection implements Connection {
     const hello: SrpClientHello = {
       type: "srp_hello",
       identity: this.username,
+      locale: getRequestLocale(),
       browserProfileId,
       originMetadata,
     };

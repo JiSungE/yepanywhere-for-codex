@@ -9,10 +9,12 @@
 import { useNavigate } from "react-router-dom";
 import { YepAnywhereLogo } from "../components/YepAnywhereLogo";
 import { useRemoteConnection } from "../contexts/RemoteConnectionContext";
+import { useI18n } from "../i18n";
 
 export function RemoteLoginModePage() {
   const navigate = useNavigate();
   const { isAutoResuming } = useRemoteConnection();
+  const { t } = useI18n();
 
   // If auto-resume is in progress, show a loading screen
   if (isAutoResuming) {
@@ -22,7 +24,7 @@ export function RemoteLoginModePage() {
           <div className="login-logo">
             <YepAnywhereLogo />
           </div>
-          <p className="login-subtitle">Reconnecting...</p>
+          <p className="login-subtitle">{t("remoteLoginReconnect")}</p>
           <div className="login-loading" data-testid="auto-resume-loading">
             <div className="login-spinner" />
           </div>
@@ -37,7 +39,7 @@ export function RemoteLoginModePage() {
         <div className="login-logo">
           <YepAnywhereLogo />
         </div>
-        <p className="login-subtitle">How would you like to connect?</p>
+        <p className="login-subtitle">{t("remoteLoginModeSubtitle")}</p>
 
         <div className="login-mode-options">
           <button
@@ -46,10 +48,11 @@ export function RemoteLoginModePage() {
             onClick={() => navigate("/relay")}
             data-testid="relay-mode-button"
           >
-            <span className="login-mode-option-title">Connect via Relay</span>
+            <span className="login-mode-option-title">
+              {t("remoteLoginRelayTitle")}
+            </span>
             <span className="login-mode-option-desc">
-              Use a relay server to connect from anywhere. No port forwarding
-              needed.
+              {t("remoteLoginRelayDescription")}
             </span>
           </button>
 
@@ -59,16 +62,16 @@ export function RemoteLoginModePage() {
             onClick={() => navigate("/direct")}
             data-testid="direct-mode-button"
           >
-            <span className="login-mode-option-title">Direct Connection</span>
+            <span className="login-mode-option-title">
+              {t("remoteLoginDirectTitle")}
+            </span>
             <span className="login-mode-option-desc">
-              Connect directly via WebSocket URL. For LAN or Tailscale.
+              {t("remoteLoginDirectDescription")}
             </span>
           </button>
         </div>
 
-        <p className="login-hint">
-          Most users should choose "Connect via Relay" for the easiest setup.
-        </p>
+        <p className="login-hint">{t("remoteLoginHint")}</p>
       </div>
     </div>
   );

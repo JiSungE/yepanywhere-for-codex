@@ -16,6 +16,7 @@ import type {
   UploadedFile,
   YepMessage,
 } from "@yep-anywhere/shared";
+import { getRequestLocale } from "../../i18n";
 import { getOrCreateBrowserProfileId } from "../storageKeys";
 import { generateUUID } from "../uuid";
 import type { StreamHandlers, Subscription, UploadOptions } from "./types";
@@ -315,6 +316,7 @@ export class RelayProtocol {
 
     headers["Content-Type"] = "application/json";
     headers["X-Yep-Anywhere"] = "true";
+    headers["X-Yep-Anywhere-Locale"] = getRequestLocale();
 
     const request: RelayRequest = {
       type: "request",

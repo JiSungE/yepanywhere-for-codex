@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { Locale, TranslateFn } from "../../i18n";
 
 /**
  * Extended content block with all possible fields from Claude messages
@@ -28,6 +29,10 @@ export interface RenderContext {
   isStreaming: boolean;
   /** Current theme */
   theme: "light" | "dark";
+  /** Active locale for UI labels in renderers */
+  locale?: Locale;
+  /** Translation helper for renderer UI */
+  t?: TranslateFn;
   /** Tool use ID (for Task renderer to look up agentId mapping during streaming) */
   toolUseId?: string;
   /** Lookup tool_use by ID (for tool_result rendering) */

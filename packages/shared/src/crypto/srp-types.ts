@@ -15,6 +15,8 @@ export interface SrpClientHello {
   type: "srp_hello";
   /** Username/identity */
   identity: string;
+  /** Preferred UI locale for user-facing authentication messages */
+  locale?: string;
   /** Browser profile identifier for session tracking */
   browserProfileId?: string;
   /** Origin metadata for device/browser identification */

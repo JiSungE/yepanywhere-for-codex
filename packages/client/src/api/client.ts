@@ -14,6 +14,7 @@ import type {
   ThinkingOption,
   UploadedFile,
 } from "@yep-anywhere/shared";
+import { getRequestLocale } from "../i18n";
 import { authEvents } from "../lib/authEvents";
 import { getGlobalConnection, isRemoteClient } from "../lib/connection";
 import type {
@@ -175,10 +176,25 @@ export async function fetchJSON<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Yep-Anywhere": "true",
+    "X-Yep-Anywhere-Locale": getRequestLocale(),
+  };
+  if (desktopAuthToken) {
+    headers["X-Desktop-Token"] = desktopAuthToken;
+  }
+
   // Route through global connection in remote mode (SecureConnection)
   const globalConn = getGlobalConnection();
   if (globalConn) {
-    return globalConn.fetch<T>(path, options);
+    return globalConn.fetch<T>(path, {
+      ...options,
+      headers: {
+        ...headers,
+        ...options?.headers,
+      },
+    });
   }
 
   // In remote client mode, we MUST have a SecureConnection
@@ -187,14 +203,6 @@ export async function fetchJSON<T>(
     throw new Error(
       "Remote client requires SecureConnection - not authenticated",
     );
-  }
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "X-Yep-Anywhere": "true",
-  };
-  if (desktopAuthToken) {
-    headers["X-Desktop-Token"] = desktopAuthToken;
   }
 
   const res = await fetch(`${API_BASE}${path}`, {

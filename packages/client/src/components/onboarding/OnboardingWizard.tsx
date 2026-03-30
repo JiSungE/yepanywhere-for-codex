@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useI18n } from "../../i18n";
 import { Modal } from "../ui/Modal";
 import { RemoteAccessStep, ThemeStep } from "./steps";
 import type { OnboardingStepConfig } from "./types";
@@ -7,19 +8,6 @@ import type { OnboardingStepConfig } from "./types";
  * Extensible step registry - add new steps here.
  * The order in this array determines the wizard flow.
  */
-const ONBOARDING_STEPS: OnboardingStepConfig[] = [
-  {
-    id: "theme",
-    title: "Choose Your Theme",
-    component: ThemeStep,
-  },
-  {
-    id: "remote-access",
-    title: "Remote Access",
-    component: RemoteAccessStep,
-  },
-];
-
 interface OnboardingWizardProps {
   /** Called when onboarding is complete (finished or skipped) */
   onComplete: () => void;
@@ -30,9 +18,22 @@ interface OnboardingWizardProps {
  * Guides users through initial setup: theme selection and remote access info.
  */
 export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
+  const { t } = useI18n();
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
+  const onboardingSteps: OnboardingStepConfig[] = [
+    {
+      id: "theme",
+      title: t("onboardingChooseTheme"),
+      component: ThemeStep,
+    },
+    {
+      id: "remote-access",
+      title: t("onboardingRemoteAccess"),
+      component: RemoteAccessStep,
+    },
+  ];
 
-  const currentStep = ONBOARDING_STEPS[currentStepIndex];
+  const currentStep = onboardingSteps[currentStepIndex];
 
   // Guard against undefined (shouldn't happen in practice)
   if (!currentStep) {
@@ -40,7 +41,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     return null;
   }
 
-  const isLastStep = currentStepIndex === ONBOARDING_STEPS.length - 1;
+  const isLastStep = currentStepIndex === onboardingSteps.length - 1;
   const StepComponent = currentStep.component;
 
   const handleNext = () => {
@@ -73,9 +74,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
   const modalTitle = (
     <div className="onboarding-modal-title">
-      <span>Welcome to yepanywhere</span>
+      <span>{t("onboardingWelcomeTitle")}</span>
       <span className="onboarding-step-indicator">
-        Step {currentStepIndex + 1} of {ONBOARDING_STEPS.length}
+        {t("onboardingStepIndicator", {
+          current: currentStepIndex + 1,
+          total: onboardingSteps.length,
+        })}
       </span>
     </div>
   );
@@ -97,7 +101,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             className="onboarding-skip-all"
             onClick={handleSkipAll}
           >
-            Skip all
+            {t("onboardingSkipAll")}
           </button>
           <div className="onboarding-footer-right">
             {!isFirstStep && (
@@ -106,11 +110,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 className="onboarding-back"
                 onClick={handleBack}
               >
-                Back
+                {t("actionBack")}
               </button>
             )}
             <div className="onboarding-progress">
-              {ONBOARDING_STEPS.map((step, index) => (
+              {onboardingSteps.map((step, index) => (
                 <span
                   key={step.id}
                   className={`onboarding-progress-dot ${

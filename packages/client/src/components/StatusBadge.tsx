@@ -1,4 +1,5 @@
 import type { AgentActivity } from "../hooks/useFileActivity";
+import { useOptionalI18n } from "../i18n";
 import type { SessionStatus } from "../types";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 
@@ -37,7 +38,11 @@ interface NotificationBadgeProps {
  * - "unread" (orange): New content since last viewed
  */
 export function NotificationBadge({ variant, label }: NotificationBadgeProps) {
-  const defaultLabel = variant === "needs-input" ? "Input Needed" : "New";
+  const { t } = useOptionalI18n();
+  const defaultLabel =
+    variant === "needs-input"
+      ? t("statusBadgeInputNeeded")
+      : t("statusBadgeNew");
 
   return (
     <span className={`status-badge notification-${variant}`}>
@@ -57,16 +62,23 @@ export function SessionStatusBadge({
   hasUnread,
   activity,
 }: SessionStatusBadgeProps) {
+  const { t } = useOptionalI18n();
   // External sessions always show the external badge
   // We can't track fine-grained state (in-turn, needs input) for external sessions
   if (status.owner === "external") {
-    return <span className="status-badge status-external">External</span>;
+    return (
+      <span className="status-badge status-external">
+        {t("statusBadgeExternal")}
+      </span>
+    );
   }
 
   // Priority 1: Needs input (tool approval or user question)
   if (pendingInputType) {
     const label =
-      pendingInputType === "tool-approval" ? "Approval Needed" : "Question";
+      pendingInputType === "tool-approval"
+        ? t("statusBadgeApprovalNeeded")
+        : t("statusBadgeQuestion");
     return <NotificationBadge variant="needs-input" label={label} />;
   }
 
@@ -88,13 +100,14 @@ export function SessionStatusBadge({
  * Used on the projects list page.
  */
 export function ActiveCountBadge({ variant, count }: CountBadgeProps) {
+  const { t } = useOptionalI18n();
   if (count === 0) return null;
 
   const label =
     variant === "self"
-      ? `${count} Active`
+      ? t("statusBadgeActiveCount", { count })
       : variant === "external"
-        ? `${count} External`
+        ? t("statusBadgeExternalCount", { count })
         : null;
 
   if (!label) return null;

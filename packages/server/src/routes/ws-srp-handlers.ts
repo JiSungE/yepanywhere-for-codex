@@ -16,6 +16,7 @@ import {
   deriveSecretboxKey,
   deriveTransportKey,
 } from "../crypto/index.js";
+import { normalizeServerLocale, translateUserMessage } from "../i18n.js";
 import type {
   RemoteAccessService,
   RemoteSessionService,
@@ -184,11 +185,14 @@ function resetFailedProofPenalty(limiter: SrpLimiterState): void {
   limiter.blockedUntil = 0;
 }
 
-function sendSrpRateLimited(ws: WSAdapter): void {
+function sendSrpRateLimited(ws: WSAdapter, locale: string): void {
   sendSrpMessage(ws, {
     type: "srp_error",
     code: "invalid_proof",
-    message: "Too many authentication attempts. Try again shortly.",
+    message: translateUserMessage(
+      "Too many authentication attempts. Try again shortly.",
+      normalizeServerLocale(locale),
+    ),
   });
 }
 
@@ -201,7 +205,7 @@ function enforceSrpHelloRateLimit(
   const connLimiter = connState.srpLimiter;
 
   if (connLimiter.blockedUntil > now) {
-    sendSrpRateLimited(ws);
+    sendSrpRateLimited(ws, connState.locale);
     ws.close(4008, "Rate limit exceeded");
     return false;
   }
@@ -211,7 +215,7 @@ function enforceSrpHelloRateLimit(
       connLimiter.blockedUntil,
       now + SRP_HELLO_COOLDOWN_MS,
     );
-    sendSrpRateLimited(ws);
+    sendSrpRateLimited(ws, connState.locale);
     ws.close(4008, "Rate limit exceeded");
     return false;
   }
@@ -221,7 +225,7 @@ function enforceSrpHelloRateLimit(
   }
 
   if (usernameLimiter.blockedUntil > now) {
-    sendSrpRateLimited(ws);
+    sendSrpRateLimited(ws, connState.locale);
     ws.close(4008, "Rate limit exceeded");
     return false;
   }
@@ -231,7 +235,7 @@ function enforceSrpHelloRateLimit(
       usernameLimiter.blockedUntil,
       now + SRP_HELLO_COOLDOWN_MS,
     );
-    sendSrpRateLimited(ws);
+    sendSrpRateLimited(ws, connState.locale);
     ws.close(4008, "Rate limit exceeded");
     return false;
   }
@@ -456,12 +460,16 @@ export async function handleSrpHello(
 ): Promise<void> {
   const now = Date.now();
   cleanupUsernameSrpLimiters(now);
+  connState.locale = normalizeServerLocale(msg.locale);
 
   if (isSrpProofPending(connState)) {
     sendSrpMessage(ws, {
       type: "srp_error",
       code: "invalid_proof",
-      message: "Authentication already in progress",
+      message: translateUserMessage(
+        "Authentication already in progress",
+        connState.locale,
+      ),
     });
     ws.close(4008, "Authentication already in progress");
     return;
@@ -472,7 +480,7 @@ export async function handleSrpHello(
     sendSrpMessage(ws, {
       type: "srp_error",
       code: "invalid_proof",
-      message: "Already authenticated",
+      message: translateUserMessage("Already authenticated", connState.locale),
     });
     ws.close(4005, "Already authenticated");
     return;
@@ -482,7 +490,10 @@ export async function handleSrpHello(
     sendSrpMessage(ws, {
       type: "srp_error",
       code: "server_error",
-      message: "Remote access not configured",
+      message: translateUserMessage(
+        "Remote access not configured",
+        connState.locale,
+      ),
     });
     return;
   }
@@ -492,7 +503,10 @@ export async function handleSrpHello(
     sendSrpMessage(ws, {
       type: "srp_error",
       code: "invalid_identity",
-      message: "Remote access not configured",
+      message: translateUserMessage(
+        "Remote access not configured",
+        connState.locale,
+      ),
     });
     return;
   }
@@ -510,7 +524,7 @@ export async function handleSrpHello(
     sendSrpMessage(ws, {
       type: "srp_error",
       code: "invalid_identity",
-      message: "Unknown identity",
+      message: translateUserMessage("Unknown identity", connState.locale),
     });
     return;
   }
@@ -546,7 +560,7 @@ export async function handleSrpHello(
     sendSrpMessage(ws, {
       type: "srp_error",
       code: "server_error",
-      message: "Authentication failed",
+      message: translateUserMessage("Authentication failed", connState.locale),
     });
   }
 }
@@ -566,7 +580,10 @@ export async function handleSrpProof(
     sendSrpMessage(ws, {
       type: "srp_error",
       code: "server_error",
-      message: "Unexpected proof message",
+      message: translateUserMessage(
+        "Unexpected proof message",
+        connState.locale,
+      ),
     });
     return;
   }
@@ -591,7 +608,10 @@ export async function handleSrpProof(
       sendSrpMessage(ws, {
         type: "srp_error",
         code: "invalid_proof",
-        message: "Authentication failed",
+        message: translateUserMessage(
+          "Authentication failed",
+          connState.locale,
+        ),
       });
       cleanupSrpHandshakeState(connState);
       ws.close(4001, "Authentication failed");
@@ -660,7 +680,7 @@ export async function handleSrpProof(
     sendSrpMessage(ws, {
       type: "srp_error",
       code: "server_error",
-      message: "Authentication failed",
+      message: translateUserMessage("Authentication failed", connState.locale),
     });
     cleanupSrpHandshakeState(connState);
     ws.close(4001, "Authentication failed");

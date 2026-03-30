@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import type { GlobalSessionItem } from "../api/client";
 import type { AgentActivity } from "../hooks/useFileActivity";
 import { useGlobalSessions } from "../hooks/useGlobalSessions";
+import { useI18n } from "../i18n";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 
 const MAX_RECENT_SESSIONS = 10;
@@ -24,7 +25,14 @@ interface RecentSessionsDropdownProps {
 }
 
 /** Format time as "Xm ago" style */
-function formatRelativeTime(timestamp: string): string {
+function formatRelativeTime(
+  timestamp: string,
+  formatDate: (
+    value: string | number | Date,
+    options?: Intl.DateTimeFormatOptions,
+  ) => string,
+  t: ReturnType<typeof useI18n>["t"],
+): string {
   const now = Date.now();
   const then = new Date(timestamp).getTime();
   const diffMs = now - then;
@@ -32,11 +40,13 @@ function formatRelativeTime(timestamp: string): string {
   const diffHours = Math.floor(diffMs / 3600000);
   const diffDays = Math.floor(diffMs / 86400000);
 
-  if (diffMins < 1) return "now";
-  if (diffMins < 60) return `${diffMins}m`;
-  if (diffHours < 24) return `${diffHours}h`;
-  if (diffDays < 7) return `${diffDays}d`;
-  return new Date(timestamp).toLocaleDateString(undefined, {
+  if (diffMins < 1) return t("recentSessionsNow");
+  if (diffMins < 60)
+    return t("recentSessionsMinutesShort", { count: diffMins });
+  if (diffHours < 24)
+    return t("recentSessionsHoursShort", { count: diffHours });
+  if (diffDays < 7) return t("recentSessionsDaysShort", { count: diffDays });
+  return formatDate(timestamp, {
     month: "short",
     day: "numeric",
   });
@@ -44,11 +54,17 @@ function formatRelativeTime(timestamp: string): string {
 
 /** Get display title */
 function getDisplayTitle(session: GlobalSessionItem): string {
-  return session.customTitle || session.title || "Untitled";
+  return session.customTitle || session.title || "";
 }
 
 /** Compact status indicator */
-function StatusIndicator({ session }: { session: GlobalSessionItem }) {
+function StatusIndicator({
+  session,
+  t,
+}: {
+  session: GlobalSessionItem;
+  t: ReturnType<typeof useI18n>["t"];
+}) {
   const activity = session.activity as AgentActivity | undefined;
 
   // In-turn/thinking indicator
@@ -58,13 +74,20 @@ function StatusIndicator({ session }: { session: GlobalSessionItem }) {
 
   // Needs input
   if (session.pendingInputType) {
-    const label = session.pendingInputType === "tool-approval" ? "Appr" : "Q";
+    const label =
+      session.pendingInputType === "tool-approval"
+        ? t("recentSessionsApprovalShort")
+        : t("recentSessionsQuestionShort");
     return <span className="recent-sessions-badge needs-input">{label}</span>;
   }
 
   // External session
   if (session.ownership.owner === "external") {
-    return <span className="recent-sessions-badge external">Ext</span>;
+    return (
+      <span className="recent-sessions-badge external">
+        {t("recentSessionsExternalShort")}
+      </span>
+    );
   }
 
   return null;
@@ -78,6 +101,7 @@ export function RecentSessionsDropdown({
   triggerRef,
   basePath = "",
 }: RecentSessionsDropdownProps) {
+  const { formatDate, t } = useI18n();
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Fetch recent sessions across all projects
@@ -145,9 +169,9 @@ export function RecentSessionsDropdown({
 
   const dropdown = (
     <div ref={dropdownRef} className="recent-sessions-dropdown" style={style}>
-      <div className="recent-sessions-header">Recent Sessions</div>
+      <div className="recent-sessions-header">{t("recentSessionsTitle")}</div>
       {recentSessions.length === 0 ? (
-        <div className="recent-sessions-empty">No other sessions</div>
+        <div className="recent-sessions-empty">{t("recentSessionsEmpty")}</div>
       ) : (
         <div className="recent-sessions-list">
           {recentSessions.map((session) => (
@@ -177,7 +201,7 @@ export function RecentSessionsDropdown({
                     </svg>
                   )}
                   <span className="recent-session-title-text">
-                    {getDisplayTitle(session)}
+                    {getDisplayTitle(session) || t("recentSessionsUntitled")}
                   </span>
                 </span>
                 <span className="recent-session-project">
@@ -185,9 +209,9 @@ export function RecentSessionsDropdown({
                 </span>
               </div>
               <div className="recent-session-meta">
-                <StatusIndicator session={session} />
+                <StatusIndicator session={session} t={t} />
                 <span className="recent-session-time">
-                  {formatRelativeTime(session.updatedAt)}
+                  {formatRelativeTime(session.updatedAt, formatDate, t)}
                 </span>
               </div>
             </Link>

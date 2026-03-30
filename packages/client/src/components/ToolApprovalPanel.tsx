@@ -40,7 +40,7 @@ export function ToolApprovalPanel({
   collapsed = false,
   onCollapsedChange,
 }: Props) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [submitting, setSubmitting] = useState(false);
   // Prevent accidental clicks by disabling buttons briefly when panel appears
   const [armed, setArmed] = useState(false);
@@ -188,7 +188,13 @@ export function ToolApprovalPanel({
   ]);
 
   const summary = request.toolName
-    ? getToolSummary(request.toolName, request.toolInput, undefined, "pending")
+    ? getToolSummary(
+        request.toolName,
+        request.toolInput,
+        undefined,
+        "pending",
+        t,
+      )
     : request.prompt;
 
   const [showPreviewModal, setShowPreviewModal] = useState(false);
@@ -203,9 +209,11 @@ export function ToolApprovalPanel({
     () => ({
       isStreaming: true,
       theme: "dark",
+      locale,
+      t,
       toolUseId: request.id,
     }),
-    [request.id],
+    [locale, t, request.id],
   );
 
   return (

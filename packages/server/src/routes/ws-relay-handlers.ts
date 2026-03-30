@@ -41,6 +41,12 @@ import {
 } from "../crypto/index.js";
 import type { SrpServerSession } from "../crypto/index.js";
 import type { DeviceBridgeService } from "../device/DeviceBridgeService.js";
+import {
+  REQUEST_LOCALE_HEADER,
+  type ServerLocale,
+  normalizeServerLocale,
+  translateUserMessage,
+} from "../i18n.js";
 import { getLogger } from "../logging/logger.js";
 import { WS_INTERNAL_AUTHENTICATED } from "../middleware/internal-auth.js";
 import type {
@@ -139,6 +145,8 @@ export interface ConnectionState {
   browserProfileId: string | null;
   /** Origin metadata from SRP hello (for session tracking) */
   originMetadata: OriginMetadata | null;
+  /** Preferred locale for user-facing relay and SRP messages */
+  locale: ServerLocale;
   /** Pending one-time challenge for session resume (if any) */
   pendingResumeChallenge: {
     nonce: string;
@@ -233,6 +241,7 @@ export function createConnectionState(): ConnectionState {
     supportedFormats: new Set([BinaryFormat.JSON]),
     browserProfileId: null,
     originMetadata: null,
+    locale: "en",
     pendingResumeChallenge: null,
     srpLimiter: createInitialSrpLimiterState(),
     nextOutboundSeq: 0,
@@ -388,11 +397,16 @@ export async function handleRequest(
     });
   } catch (err) {
     console.error("[WS Relay] Request error:", err);
+    const locale = normalizeServerLocale(
+      request.headers?.[REQUEST_LOCALE_HEADER],
+    );
     send({
       type: "response",
       id: request.id,
       status: 500,
-      body: { error: "Internal server error" },
+      body: {
+        error: translateUserMessage("Internal server error", locale),
+      },
     });
   }
 }
@@ -406,6 +420,7 @@ export function handleSessionSubscribe(
   msg: RelaySubscribe,
   send: SendFn,
   supervisor: Supervisor,
+  connState: ConnectionState,
 ): void {
   const { subscriptionId, sessionId } = msg;
 
@@ -414,7 +429,12 @@ export function handleSessionSubscribe(
       type: "response",
       id: subscriptionId,
       status: 400,
-      body: { error: "sessionId required for session channel" },
+      body: {
+        error: translateUserMessage(
+          "sessionId required for session channel",
+          connState.locale,
+        ),
+      },
     });
     return;
   }
@@ -425,7 +445,12 @@ export function handleSessionSubscribe(
       type: "response",
       id: subscriptionId,
       status: 404,
-      body: { error: "No active process for session" },
+      body: {
+        error: translateUserMessage(
+          "No active process for session",
+          connState.locale,
+        ),
+      },
     });
     return;
   }
@@ -593,6 +618,7 @@ export function handleSubscribe(
   subscriptions: Map<string, () => void>,
   msg: RelaySubscribe,
   send: SendFn,
+  connState: ConnectionState,
   supervisor: Supervisor,
   eventBus: EventBus,
   focusedSessionWatchManager?: FocusedSessionWatchManager,
@@ -613,7 +639,7 @@ export function handleSubscribe(
 
   switch (channel) {
     case "session":
-      handleSessionSubscribe(subscriptions, msg, send, supervisor);
+      handleSessionSubscribe(subscriptions, msg, send, supervisor, connState);
       break;
 
     case "activity":
@@ -991,6 +1017,7 @@ export async function handleMessage(
           subscriptions,
           subscribeMsg,
           send,
+          connState,
           supervisor,
           eventBus,
           deps.focusedSessionWatchManager,
