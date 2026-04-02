@@ -1,24 +1,13 @@
 import type { ProviderName } from "@yep-anywhere/shared";
-import { MODEL_OPTIONS } from "../hooks/useModelSettings";
 
 const PROVIDER_COLORS: Record<ProviderName, string> = {
-  claude: "var(--provider-claude)", // Claude orange
-  "claude-ollama": "var(--provider-claude)", // Same as Claude (uses Claude SDK)
   codex: "var(--provider-codex)", // OpenAI green
   "codex-oss": "var(--provider-codex)", // OpenAI green (same as codex)
-  gemini: "var(--provider-gemini)", // Google blue
-  "gemini-acp": "var(--provider-gemini)", // Google blue (same as gemini)
-  opencode: "var(--provider-opencode)", // OpenCode purple
 };
 
 const PROVIDER_LABELS: Record<ProviderName, string> = {
-  claude: "Claude",
-  "claude-ollama": "Ollama",
   codex: "Codex",
   "codex-oss": "CodexOSS",
-  gemini: "Gemini",
-  "gemini-acp": "Gemini ACP",
-  opencode: "OpenCode",
 };
 
 interface ProviderBadgeProps {
@@ -51,28 +40,18 @@ export function ProviderBadge({
     if (!modelName) return null;
     if (modelName === "default") return null;
 
-    // Check if it's a known short model option (e.g., "opus", "sonnet")
-    const knownModel = MODEL_OPTIONS.find((o) => o.value === modelName);
-    if (knownModel && knownModel.value !== "default") {
-      return knownModel.label;
-    }
-
-    // Parse full model IDs like "claude-opus-4-5-20251101" or "claude-sonnet-4-20250514"
-    // Extract the model family (opus, sonnet, haiku) from the full ID
-    const claudeMatch = modelName.match(/claude-(\w+)-/);
-    if (claudeMatch?.[1]) {
-      const family = claudeMatch[1];
-      // Check if the extracted family is a known model
-      const familyModel = MODEL_OPTIONS.find((o) => o.value === family);
-      if (familyModel) {
-        return familyModel.label;
-      }
-      // Capitalize unknown family
-      return family.charAt(0).toUpperCase() + family.slice(1);
-    }
-
-    // For other models, capitalize first letter
-    return modelName.charAt(0).toUpperCase() + modelName.slice(1);
+    return modelName
+      .split(/[-_:]/)
+      .filter(Boolean)
+      .map((part) => {
+        const lower = part.toLowerCase();
+        if (lower === "gpt") return "GPT";
+        if (lower === "codex") return "Codex";
+        if (lower === "oss") return "OSS";
+        if (/^\d/.test(part)) return part;
+        return lower.charAt(0).toUpperCase() + lower.slice(1);
+      })
+      .join("-");
   };
 
   const modelLabel = getModelLabel(model);

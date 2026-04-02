@@ -1,5 +1,4 @@
 import type {
-  ClaudeSessionEntry,
   CodexCompactedEntry,
   CodexCustomToolCallOutputPayload,
   CodexCustomToolCallPayload,
@@ -10,17 +9,6 @@ import type {
   CodexResponseItemEntry,
   CodexSessionEntry,
   CodexWebSearchCallPayload,
-  GeminiAssistantMessage,
-  GeminiSessionMessage,
-  GeminiUserMessage,
-  OpenCodeSessionEntry,
-  OpenCodeStoredPart,
-  UnifiedSession,
-} from "@yep-anywhere/shared";
-import {
-  getGeminiUserMessageText,
-  getMessageContent,
-  isConversationEntry,
 } from "@yep-anywhere/shared";
 import {
   isCodexCorrelationDebugEnabled,
@@ -35,50 +23,12 @@ import {
   parseCodexToolArguments,
 } from "../codex/normalization.js";
 import type { ContentBlock, Message, Session } from "../supervisor/types.js";
-import { collectVisibleClaudeEntries } from "./claude-messages.js";
 import type { LoadedSession } from "./types.js";
 
 interface CodexToolUseConversion {
   callId: string;
   message: Message;
   context: CodexToolCallContext;
-}
-
-function normalizeClaudeQueueOperationContent(content: unknown): string {
-  if (content === undefined) {
-    return "";
-  }
-
-  if (typeof content === "string") {
-    return content;
-  }
-
-  if (!Array.isArray(content)) {
-    return "";
-  }
-
-  return content
-    .map((item) => {
-      if (typeof item === "string") {
-        return item;
-      }
-
-      if (!item || typeof item !== "object") {
-        return "";
-      }
-
-      const type = (item as { type?: unknown }).type;
-      if (type === "text") {
-        const text = (item as { text?: unknown }).text;
-        return typeof text === "string" ? text : "";
-      }
-      if (type === "image") return "[Image]";
-      if (type === "document") return "[Document]";
-      if (type === "tool_result") return "[Tool Result]";
-
-      return "";
-    })
-    .join("\n");
 }
 
 /**
@@ -88,116 +38,20 @@ export function normalizeSession(loaded: LoadedSession): Session {
   const { summary, data } = loaded;
 
   switch (data.provider) {
-    case "claude":
-    case "claude-ollama": {
-      const rawMessages = data.session.messages;
-      const { entries, orphanedToolUses } =
-        collectVisibleClaudeEntries(rawMessages);
-      const messages: Message[] = entries.map((raw, index) =>
-        convertClaudeMessage(raw, index, orphanedToolUses),
-      );
-
-      return {
-        ...summary,
-        messages,
-      };
-    }
     case "codex":
     case "codex-oss":
       return {
         ...summary,
         messages: convertCodexEntries(data.session.entries, summary.id),
       };
-    case "gemini":
-      return {
-        ...summary,
-        messages: convertGeminiMessages(data.session.messages),
-      };
-    case "opencode":
-      return {
-        ...summary,
-        messages: convertOpenCodeEntries(data.session.messages),
-      };
-  }
-}
-
-// --- Claude Conversion Logic ---
-
-function convertClaudeMessage(
-  raw: ClaudeSessionEntry,
-  _index: number,
-  orphanedToolUses: Set<string>,
-): Message {
-  if (raw.type === "queue-operation" && raw.operation === "enqueue") {
-    const content = normalizeClaudeQueueOperationContent(raw.content).trim();
-    const rawAny = raw as Record<string, unknown>;
-
-    return {
-      ...rawAny,
-      id: `queue-operation-${_index}-${raw.timestamp}`,
-      type: "user",
-      role: "user",
-      content,
-      message: {
-        role: "user",
-        content,
-      },
-      deferred: true,
-      deferredSource: "queue-operation",
-    };
   }
 
-  // Normalize content blocks - pass through all fields
-  let content: string | ContentBlock[] | undefined;
-  const rawContent = getMessageContent(raw);
-  if (typeof rawContent === "string") {
-    content = rawContent;
-  } else if (Array.isArray(rawContent)) {
-    // Pass through all fields from each content block
-    // Filter out string items (which can appear in user message content)
-    content = rawContent
-      .filter((block) => typeof block !== "string")
-      .map((block) => ({ ...(block as object) })) as ContentBlock[];
-  }
-
-  // Build message by spreading all raw fields, then override with normalized values
-  // Use type assertion since we're converting to a looser Message type
-  const rawAny = raw as Record<string, unknown>;
-  const message: Message = {
-    ...rawAny,
-    // Include normalized content if message had content
-    ...(isConversationEntry(raw) && {
-      message: {
-        ...(raw.message as Record<string, unknown>),
-        ...(content !== undefined && { content }),
-      },
-    }),
-    // Ensure type is set
-    type: raw.type,
-  };
-
-  // Identify orphaned tool_use IDs in this message's content
-  if (Array.isArray(content)) {
-    const orphanedIds = content
-      .filter(
-        (b): b is ContentBlock & { id: string } =>
-          b.type === "tool_use" &&
-          typeof b.id === "string" &&
-          orphanedToolUses.has(b.id),
-      )
-      .map((b) => b.id);
-
-    if (orphanedIds.length > 0) {
-      message.orphanedToolUseIds = orphanedIds;
-    }
-  }
-
-  return message;
+  throw new Error(`Unsupported session provider: ${String((data as { provider?: unknown }).provider)}`);
 }
 
 // --- Codex Conversion Logic ---
 
-function convertCodexEntries(
+export function convertCodexEntries(
   entries: CodexSessionEntry[],
   sessionId: string,
 ): Message[] {
@@ -832,182 +686,4 @@ function convertCodexEventMsg(
     default:
       return null;
   }
-}
-
-// --- Gemini Conversion Logic ---
-
-function convertGeminiMessages(
-  sessionMessages: GeminiSessionMessage[],
-): Message[] {
-  const messages: Message[] = [];
-  for (const msg of sessionMessages) {
-    if (msg.type === "user") {
-      const userMsg = msg as GeminiUserMessage;
-      messages.push({
-        uuid: userMsg.id,
-        type: "user",
-        message: {
-          role: "user",
-          content: getGeminiUserMessageText(userMsg.content),
-        },
-        timestamp: userMsg.timestamp,
-      });
-    } else if (msg.type === "gemini") {
-      const assistantMsg = msg as GeminiAssistantMessage;
-      const content: ContentBlock[] = [];
-
-      if (assistantMsg.thoughts) {
-        for (const thought of assistantMsg.thoughts) {
-          content.push({
-            type: "thinking",
-            thinking: `${thought.subject}: ${thought.description}`,
-          });
-        }
-      }
-
-      if (assistantMsg.content) {
-        content.push({
-          type: "text",
-          text: assistantMsg.content,
-        });
-      }
-
-      if (assistantMsg.toolCalls) {
-        for (const toolCall of assistantMsg.toolCalls) {
-          content.push({
-            type: "tool_use",
-            id: toolCall.id,
-            name: toolCall.name,
-            input: toolCall.args,
-          });
-        }
-      }
-
-      messages.push({
-        uuid: assistantMsg.id,
-        type: "assistant",
-        message: {
-          role: "assistant",
-          content,
-        },
-        timestamp: assistantMsg.timestamp,
-      });
-
-      if (assistantMsg.toolCalls) {
-        for (const toolCall of assistantMsg.toolCalls) {
-          if (toolCall.result && toolCall.result.length > 0) {
-            for (const result of toolCall.result) {
-              messages.push({
-                uuid: `${assistantMsg.id}-result-${result.functionResponse.id}`,
-                type: "tool_result",
-                toolUseResult: {
-                  tool_use_id: result.functionResponse.id,
-                  content: result.functionResponse.response.output,
-                },
-                timestamp: toolCall.timestamp ?? assistantMsg.timestamp,
-              });
-            }
-          }
-        }
-      }
-    }
-  }
-  return messages;
-}
-
-// --- OpenCode Conversion Logic ---
-
-function convertOpenCodeEntries(entries: OpenCodeSessionEntry[]): Message[] {
-  const messages: Message[] = [];
-
-  for (const entry of entries) {
-    const { message, parts } = entry;
-    const uuid = message.id;
-    const timestamp = message.time?.created
-      ? new Date(message.time.created).toISOString()
-      : undefined;
-
-    const content = convertOpenCodeParts(parts);
-
-    messages.push({
-      uuid,
-      type: message.role,
-      message: {
-        role: message.role,
-        content,
-        model: message.modelID,
-        usage: message.tokens
-          ? {
-              input_tokens: message.tokens.input,
-              output_tokens: message.tokens.output,
-              cache_read_input_tokens: message.tokens.cache?.read,
-            }
-          : undefined,
-      },
-      timestamp,
-      // Include OpenCode-specific fields
-      ...(message.parentID && { parentId: message.parentID }),
-      ...(message.mode && { mode: message.mode }),
-      ...(message.agent && { agent: message.agent }),
-      ...(message.finish && { finish: message.finish }),
-    });
-  }
-
-  return messages;
-}
-
-function convertOpenCodeParts(parts: OpenCodeStoredPart[]): ContentBlock[] {
-  const blocks: ContentBlock[] = [];
-
-  for (const part of parts) {
-    switch (part.type) {
-      case "text":
-        if (part.text) {
-          blocks.push({
-            type: "text",
-            text: part.text,
-          });
-        }
-        break;
-
-      case "tool":
-        if (part.tool && part.callID) {
-          // Tool use block
-          blocks.push({
-            type: "tool_use",
-            id: part.callID,
-            name: part.tool,
-            input: part.state?.input ?? {},
-          });
-
-          // If tool has completed, add tool result block
-          if (part.state?.status === "completed") {
-            const resultContent = part.state.error
-              ? part.state.error
-              : typeof part.state.output === "string"
-                ? part.state.output
-                : JSON.stringify(part.state.output ?? "");
-
-            blocks.push({
-              type: "tool_result",
-              tool_use_id: part.callID,
-              content: resultContent,
-              is_error: !!part.state.error,
-            });
-          }
-        }
-        break;
-
-      // Skip step-start and step-finish (metadata, not content)
-      case "step-start":
-      case "step-finish":
-        break;
-
-      default:
-        // Unknown part type - skip
-        break;
-    }
-  }
-
-  return blocks;
 }

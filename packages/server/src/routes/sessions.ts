@@ -1,13 +1,14 @@
 import {
   type ContextUsage,
-  type ModelOption,
   type PermissionRules,
   type ProviderName,
+  type ReasoningEffortLevel,
   type ThinkingOption,
   type UploadedFile,
   type UrlProjectId,
   getModelContextWindow,
   isUrlProjectId,
+  reasoningEffortToConfig,
   thinkingOptionToConfig,
 } from "@yep-anywhere/shared";
 import { Hono } from "hono";
@@ -15,15 +16,13 @@ import { augmentTextBlocks } from "../augments/markdown-augments.js";
 import type { SessionMetadataService } from "../metadata/index.js";
 import type { NotificationService } from "../notifications/index.js";
 import type { CodexSessionScanner } from "../projects/codex-scanner.js";
-import type { GeminiSessionScanner } from "../projects/gemini-scanner.js";
 import type { ProjectScanner } from "../projects/scanner.js";
 import { getProjectDirFromCwd, syncSessions } from "../sdk/session-sync.js";
 import type { PermissionMode, SDKMessage, UserMessage } from "../sdk/types.js";
 import type { ModelInfoService } from "../services/ModelInfoService.js";
 import type { ServerSettingsService } from "../services/ServerSettingsService.js";
 import { CodexSessionReader } from "../sessions/codex-reader.js";
-import { cloneClaudeSession, cloneCodexSession } from "../sessions/fork.js";
-import { GeminiSessionReader } from "../sessions/gemini-reader.js";
+import { cloneCodexSession } from "../sessions/fork.js";
 import { normalizeSession } from "../sessions/normalization.js";
 import {
   type PaginationInfo,
@@ -105,12 +104,7 @@ export interface SessionsDeps {
   eventBus?: EventBus;
   codexScanner?: CodexSessionScanner;
   codexSessionsDir?: string;
-  /** Optional shared Codex reader factory for cross-provider session lookups */
   codexReaderFactory?: (projectPath: string) => CodexSessionReader;
-  geminiScanner?: GeminiSessionScanner;
-  geminiSessionsDir?: string;
-  /** Optional shared Gemini reader factory for cross-provider session lookups */
-  geminiReaderFactory?: (projectPath: string) => GeminiSessionReader;
   /** ServerSettingsService for reading global instructions */
   serverSettingsService?: ServerSettingsService;
   /** ModelInfoService for context window lookups */
@@ -123,7 +117,9 @@ interface StartSessionBody {
   documents?: string[];
   attachments?: UploadedFile[];
   mode?: PermissionMode;
-  model?: ModelOption;
+  model?: string;
+  reasoningEffort?: ReasoningEffortLevel;
+  fastMode?: boolean;
   thinking?: ThinkingOption;
   provider?: ProviderName;
   /** Client-generated temp ID for optimistic UI tracking */
@@ -136,7 +132,9 @@ interface StartSessionBody {
 
 interface CreateSessionBody {
   mode?: PermissionMode;
-  model?: ModelOption;
+  model?: string;
+  reasoningEffort?: ReasoningEffortLevel;
+  fastMode?: boolean;
   thinking?: ThinkingOption;
   provider?: ProviderName;
   /** SSH host alias for remote execution (undefined = local) */
@@ -147,7 +145,13 @@ interface CreateSessionBody {
 
 interface InputResponseBody {
   requestId: string;
-  response: "approve" | "approve_accept_edits" | "deny" | string;
+  response:
+    | "approve"
+    | "approve_accept_edits"
+    | "approve_session"
+    | "approve_policy_amendment"
+    | "deny"
+    | string;
   answers?: Record<string, string>;
   feedback?: string;
 }
@@ -196,6 +200,22 @@ function sdkMessagesToClientMessages(sdkMessages: SDKMessage[]): Message[] {
     }
   }
   return messages;
+}
+
+function resolveSessionReasoningConfig(body: {
+  reasoningEffort?: ReasoningEffortLevel;
+  thinking?: ThinkingOption;
+}): {
+  thinking: import("@yep-anywhere/shared").ThinkingConfig | undefined;
+  effort?: import("@yep-anywhere/shared").EffortLevel;
+} {
+  if (body.reasoningEffort) {
+    return reasoningEffortToConfig(body.reasoningEffort);
+  }
+  if (body.thinking) {
+    return thinkingOptionToConfig(body.thinking);
+  }
+  return { thinking: undefined, effort: undefined };
 }
 
 /**
@@ -464,11 +484,7 @@ export function createSessionsRoutes(deps: SessionsDeps): Hono {
       projectId as UrlProjectId,
       {
         readerFactory: deps.readerFactory,
-        codexSessionsDir: deps.codexSessionsDir,
         codexReaderFactory: deps.codexReaderFactory,
-        geminiSessionsDir: deps.geminiSessionsDir,
-        geminiReaderFactory: deps.geminiReaderFactory,
-        geminiHashToCwd: deps.geminiScanner?.getHashToCwd(),
       },
       process?.provider ?? metadataProvider,
     );
@@ -567,57 +583,6 @@ export function createSessionsRoutes(deps: SessionsDeps): Hono {
         includeOrphans: wasEverOwned && !process,
       },
     );
-
-    // For Claude projects, also check for Codex sessions if primary reader didn't find it
-    // This handles mixed projects that have sessions from multiple providers
-    if (
-      !loadedSession &&
-      project.provider === "claude" &&
-      (deps.codexReaderFactory || deps.codexSessionsDir)
-    ) {
-      const codexReader =
-        deps.codexReaderFactory?.(project.path) ??
-        (deps.codexSessionsDir
-          ? new CodexSessionReader({
-              sessionsDir: deps.codexSessionsDir,
-              projectPath: project.path,
-            })
-          : null);
-      if (codexReader) {
-        loadedSession = await codexReader.getSession(
-          sessionId,
-          project.id,
-          afterMessageId,
-          { includeOrphans: wasEverOwned && !process },
-        );
-      }
-    }
-
-    // For Claude/Codex projects, also check for Gemini sessions if still not found
-    // This handles mixed projects that have sessions from multiple providers
-    if (
-      !loadedSession &&
-      (project.provider === "claude" || project.provider === "codex") &&
-      (deps.geminiReaderFactory || deps.geminiSessionsDir)
-    ) {
-      const geminiReader =
-        deps.geminiReaderFactory?.(project.path) ??
-        (deps.geminiSessionsDir
-          ? new GeminiSessionReader({
-              sessionsDir: deps.geminiSessionsDir,
-              projectPath: project.path,
-              hashToCwd: deps.geminiScanner?.getHashToCwd(),
-            })
-          : null);
-      if (geminiReader) {
-        loadedSession = await geminiReader.getSession(
-          sessionId,
-          project.id,
-          afterMessageId,
-          { includeOrphans: wasEverOwned && !process },
-        );
-      }
-    }
 
     let session = loadedSession ? normalizeSession(loadedSession) : null;
 
@@ -822,12 +787,7 @@ export function createSessionsRoutes(deps: SessionsDeps): Hono {
       tempId: body.tempId,
     };
 
-    // Convert thinking option to SDK config
-    const { thinking, effort } = body.thinking
-      ? thinkingOptionToConfig(body.thinking)
-      : { thinking: undefined, effort: undefined };
-
-    // Convert model option (undefined or "default" means use CLI default)
+    const { thinking, effort } = resolveSessionReasoningConfig(body);
     const model =
       body.model && body.model !== "default" ? body.model : undefined;
 
@@ -849,6 +809,7 @@ export function createSessionsRoutes(deps: SessionsDeps): Hono {
         model,
         thinking,
         effort,
+        fastMode: body.fastMode,
         providerName: body.provider,
         executor,
         globalInstructions,
@@ -923,12 +884,7 @@ export function createSessionsRoutes(deps: SessionsDeps): Hono {
       return c.json({ error: executorError }, 400);
     }
 
-    // Convert thinking option to SDK config
-    const { thinking, effort } = body.thinking
-      ? thinkingOptionToConfig(body.thinking)
-      : { thinking: undefined, effort: undefined };
-
-    // Convert model option (undefined or "default" means use CLI default)
+    const { thinking, effort } = resolveSessionReasoningConfig(body);
     const model =
       body.model && body.model !== "default" ? body.model : undefined;
 
@@ -942,6 +898,7 @@ export function createSessionsRoutes(deps: SessionsDeps): Hono {
         model,
         thinking,
         effort,
+        fastMode: body.fastMode,
         providerName: body.provider,
         executor,
         globalInstructions,
@@ -1026,12 +983,7 @@ export function createSessionsRoutes(deps: SessionsDeps): Hono {
       tempId: body.tempId,
     };
 
-    // Convert thinking option to SDK config
-    const { thinking, effort } = body.thinking
-      ? thinkingOptionToConfig(body.thinking)
-      : { thinking: undefined, effort: undefined };
-
-    // Convert model option (undefined or "default" means use CLI default)
+    const { thinking, effort } = resolveSessionReasoningConfig(body);
     const model =
       body.model && body.model !== "default" ? body.model : undefined;
 
@@ -1072,9 +1024,8 @@ export function createSessionsRoutes(deps: SessionsDeps): Hono {
     const globalInstructions =
       deps.serverSettingsService?.getSetting("globalInstructions") || undefined;
 
-    // Look up the session's original provider so we resume with the correct one
-    // (e.g., claude-ollama sessions need the Ollama provider, not default Claude).
-    // Check metadata first (explicitly saved on creation), then fall back to reader.
+    // Look up the session's original runtime so we resume with the correct one.
+    // Check metadata first (explicitly saved on creation), then fall back to the reader.
     let providerName = body.provider;
     if (!providerName) {
       providerName = deps.sessionMetadataService?.getProvider(sessionId) as
@@ -1088,11 +1039,7 @@ export function createSessionsRoutes(deps: SessionsDeps): Hono {
         projectId as UrlProjectId,
         {
           readerFactory: deps.readerFactory,
-          codexSessionsDir: deps.codexSessionsDir,
           codexReaderFactory: deps.codexReaderFactory,
-          geminiSessionsDir: deps.geminiSessionsDir,
-          geminiReaderFactory: deps.geminiReaderFactory,
-          geminiHashToCwd: deps.geminiScanner?.getHashToCwd(),
         },
         deps.sessionMetadataService?.getProvider(sessionId) as
           | ProviderName
@@ -1111,6 +1058,7 @@ export function createSessionsRoutes(deps: SessionsDeps): Hono {
         model,
         thinking,
         effort,
+        fastMode: body.fastMode,
         providerName,
         executor,
         globalInstructions,
@@ -1184,10 +1132,7 @@ export function createSessionsRoutes(deps: SessionsDeps): Hono {
       return c.json({ queued: true, deferred: true });
     }
 
-    // Convert thinking option to SDK config
-    const { thinking, effort } = body.thinking
-      ? thinkingOptionToConfig(body.thinking)
-      : { thinking: undefined, effort: undefined };
+    const { thinking, effort } = resolveSessionReasoningConfig(body);
 
     // Use queueMessageToSession which handles thinking mode changes
     // If thinking mode changed, it will restart the process automatically
@@ -1198,7 +1143,12 @@ export function createSessionsRoutes(deps: SessionsDeps): Hono {
       process.projectPath,
       userMessage,
       body.mode,
-      { thinking, effort, globalInstructions: queueGlobalInstructions },
+      {
+        thinking,
+        effort,
+        fastMode: body.fastMode,
+        globalInstructions: queueGlobalInstructions,
+      },
     );
 
     if (!result.success) {
@@ -1334,13 +1284,18 @@ export function createSessionsRoutes(deps: SessionsDeps): Hono {
     // Handle approve_accept_edits: approve and switch permission mode
     const isApproveAcceptEdits = body.response === "approve_accept_edits";
 
-    // Normalize response to approve/deny
     const normalizedResponse =
-      body.response === "approve" ||
-      body.response === "allow" ||
-      body.response === "approve_accept_edits"
+      body.response === "allow"
         ? "approve"
-        : "deny";
+        : body.response === "approve_accept_edits"
+          ? "approve"
+          : body.response === "approve_session"
+            ? "approve_session"
+            : body.response === "approve_policy_amendment"
+              ? "approve_policy_amendment"
+              : body.response === "approve"
+                ? "approve"
+                : "deny";
 
     // Call respondToInput which resolves the SDK's canUseTool promise
     const accepted = process.respondToInput(
@@ -1354,9 +1309,9 @@ export function createSessionsRoutes(deps: SessionsDeps): Hono {
       return c.json({ error: "Invalid request ID or no pending request" }, 400);
     }
 
-    // If approve_accept_edits, switch the permission mode
+    // If approve_accept_edits, switch the permission mode to full access.
     if (isApproveAcceptEdits) {
-      process.setPermissionMode("acceptEdits");
+      process.setPermissionMode("bypassPermissions");
     }
 
     return c.json({ accepted: true });
@@ -1508,8 +1463,8 @@ export function createSessionsRoutes(deps: SessionsDeps): Hono {
       return c.json({ error: "Project not found" }, 404);
     }
 
-    // Check provider supports cloning
-    const supportedProviders = ["claude", "codex", "codex-oss"];
+    // Check runtime supports cloning
+    const supportedProviders = ["codex", "codex-oss"];
     if (!supportedProviders.includes(project.provider)) {
       return c.json(
         { error: `Clone is not supported for ${project.provider} sessions` },
@@ -1539,37 +1494,26 @@ export function createSessionsRoutes(deps: SessionsDeps): Hono {
       );
       let cloneProvider: ProviderName = project.provider;
 
-      let result: { newSessionId: string; entries: number };
-
-      const shouldCloneFromCodex =
-        isCodexProviderName(body.provider) ||
-        isCodexProviderName(project.provider) ||
-        (!originalSession && project.provider === "claude");
-
-      if (shouldCloneFromCodex) {
-        const codexReader = getCodexReader(project.path);
-        if (!codexReader) {
-          return c.json({ error: "Codex session reader not available" }, 500);
-        }
-        const filePath = await codexReader.getSessionFilePath(sessionId);
-        if (!filePath) {
-          return c.json({ error: "Session file not found" }, 404);
-        }
-
-        originalSession =
-          originalSession ??
-          (await codexReader.getSessionSummary(sessionId, projectId)) ??
-          null;
-        cloneProvider =
-          originalSession?.provider ??
-          body.provider ??
-          (isCodexProviderName(project.provider) ? project.provider : "codex");
-        result = await cloneCodexSession(filePath);
-        codexReader.invalidateCache();
-        deps.codexScanner?.invalidateCache();
-      } else {
-        result = await cloneClaudeSession(sessionDir, sessionId);
+      const codexReader = getCodexReader(project.path);
+      if (!codexReader) {
+        return c.json({ error: "Codex session reader not available" }, 500);
       }
+      const filePath = await codexReader.getSessionFilePath(sessionId);
+      if (!filePath) {
+        return c.json({ error: "Session file not found" }, 404);
+      }
+
+      originalSession =
+        originalSession ??
+        (await codexReader.getSessionSummary(sessionId, projectId)) ??
+        null;
+      cloneProvider =
+        originalSession?.provider ??
+        body.provider ??
+        (isCodexProviderName(project.provider) ? project.provider : "codex");
+      const result = await cloneCodexSession(filePath);
+      codexReader.invalidateCache();
+      deps.codexScanner?.invalidateCache();
 
       // Build clone title: use provided title, or derive from original
       let cloneTitle = body.title;

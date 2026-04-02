@@ -23,10 +23,6 @@ import {
   CODEX_SESSIONS_DIR,
   CodexSessionScanner,
 } from "./projects/codex-scanner.js";
-import {
-  GEMINI_TMP_DIR,
-  GeminiSessionScanner,
-} from "./projects/gemini-scanner.js";
 import { ProjectScanner } from "./projects/scanner.js";
 import { PushNotifier, type PushService } from "./push/index.js";
 import { createPushRoutes } from "./push/routes.js";
@@ -52,14 +48,13 @@ import { createNetworkBindingRoutes } from "./routes/network-binding.js";
 import { createOnboardingRoutes } from "./routes/onboarding.js";
 import { createProcessesRoutes } from "./routes/processes.js";
 import { createProjectsRoutes } from "./routes/projects.js";
-import { createProvidersRoutes } from "./routes/providers.js";
+import { createCodexRuntimesRoutes } from "./routes/providers.js";
 import { createRecentsRoutes } from "./routes/recents.js";
 import { createServerAdminRoutes } from "./routes/server-admin.js";
 import { createServerInfoRoutes } from "./routes/server-info.js";
 import { createSessionsRoutes } from "./routes/sessions.js";
 import { createSettingsRoutes } from "./routes/settings.js";
 import { createSharingRoutes } from "./routes/sharing.js";
-import { ClaudeOllamaProvider } from "./sdk/providers/claude-ollama.js";
 
 import { createLocalImageRoutes } from "./routes/local-image.js";
 import { type UploadDeps, createUploadRoutes } from "./routes/upload.js";
@@ -77,10 +72,6 @@ import type { RelayClientService } from "./services/RelayClientService.js";
 import type { ServerSettingsService } from "./services/ServerSettingsService.js";
 import type { SharingService } from "./services/SharingService.js";
 import { CodexSessionReader } from "./sessions/codex-reader.js";
-import { GeminiSessionReader } from "./sessions/gemini-reader.js";
-import { OpenCodeSessionReader } from "./sessions/opencode-reader.js";
-import { findSessionSummaryAcrossProviders } from "./sessions/provider-resolution.js";
-import { ClaudeSessionReader } from "./sessions/reader.js";
 import type { ISessionReader } from "./sessions/types.js";
 import { ExternalSessionTracker } from "./supervisor/ExternalSessionTracker.js";
 import { Supervisor } from "./supervisor/Supervisor.js";
@@ -174,8 +165,6 @@ export interface AppOptions {
   sharingService?: SharingService;
   /** DeviceBridgeService for Android emulator streaming */
   deviceBridgeService?: DeviceBridgeService;
-  /** If non-empty, only these provider names are exposed via the API. */
-  enabledProviders?: string[];
   /** Whether voice input is enabled. Default: true */
   voiceInputEnabled?: boolean;
   /** Allowed directory prefixes for serving local images. Default: ["/tmp"] */
@@ -251,7 +240,6 @@ export function createApp(options: AppOptions): AppResult {
     cacheTtlMs: options.projectScanCacheTtlMs,
   });
   const codexScanner = new CodexSessionScanner();
-  const geminiScanner = new GeminiSessionScanner();
   const readerCache = new Map<string, ISessionReader>();
   const maxReaderCacheSize = 500;
 
@@ -274,62 +262,15 @@ export function createApp(options: AppOptions): AppResult {
     return reader;
   };
 
-  /**
-   * Create a session reader appropriate for the project's provider.
-   * Routes call this with the project to get the right reader.
-   */
   const readerFactory = (project: Project): ISessionReader => {
-    const mergedKey =
-      project.mergedSessionDirs && project.mergedSessionDirs.length > 0
-        ? `::merged=${project.mergedSessionDirs.join(",")}`
-        : "";
-
-    switch (project.provider) {
-      case "codex":
-      case "codex-oss":
-        return getOrCreateReader(
-          `codex::${project.sessionDir}::${project.path}`,
-          () =>
-            new CodexSessionReader({
-              sessionsDir: project.sessionDir,
-              projectPath: project.path,
-            }),
-        );
-      case "gemini":
-      case "gemini-acp":
-        return getOrCreateReader(
-          `gemini::${GEMINI_TMP_DIR}::${project.path}`,
-          () =>
-            new GeminiSessionReader({
-              sessionsDir: GEMINI_TMP_DIR,
-              projectPath: project.path,
-              hashToCwd: geminiScanner.getHashToCwd(),
-            }),
-        );
-      case "claude":
-      case "claude-ollama": {
-        const mis = options.modelInfoService;
-        return getOrCreateReader(
-          `claude::${project.sessionDir}${mergedKey}`,
-          () =>
-            new ClaudeSessionReader({
-              sessionDir: project.sessionDir,
-              additionalDirs: project.mergedSessionDirs,
-              getContextWindow: mis
-                ? (model, provider) => mis.getContextWindow(model, provider)
-                : undefined,
-            }),
-        );
-      }
-      case "opencode":
-        return getOrCreateReader(
-          `opencode::${project.path}`,
-          () =>
-            new OpenCodeSessionReader({
-              projectPath: project.path,
-            }),
-        );
-    }
+    return getOrCreateReader(
+      `codex::${project.sessionDir}::${project.path}`,
+      () =>
+        new CodexSessionReader({
+          sessionsDir: project.sessionDir,
+          projectPath: project.path,
+        }),
+    );
   };
   const codexReaderFactory = (projectPath: string): CodexSessionReader =>
     getOrCreateReader(
@@ -340,34 +281,10 @@ export function createApp(options: AppOptions): AppResult {
           projectPath,
         }),
     );
-  const geminiReaderFactory = (projectPath: string): GeminiSessionReader =>
-    getOrCreateReader(
-      `gemini-extra::${GEMINI_TMP_DIR}::${projectPath}`,
-      () =>
-        new GeminiSessionReader({
-          sessionsDir: GEMINI_TMP_DIR,
-          projectPath,
-          hashToCwd: geminiScanner.getHashToCwd(),
-        }),
-    );
   const getSessionSummary = async (sessionId: string, projectId: string) => {
     const project = await scanner.getProject(projectId);
     if (!project) return null;
-    const resolved = await findSessionSummaryAcrossProviders(
-      project,
-      sessionId,
-      project.id,
-      {
-        readerFactory,
-        codexSessionsDir: CODEX_SESSIONS_DIR,
-        codexReaderFactory,
-        geminiSessionsDir: GEMINI_TMP_DIR,
-        geminiReaderFactory,
-        geminiHashToCwd: geminiScanner.getHashToCwd(),
-      },
-      options.sessionMetadataService?.getProvider(sessionId),
-    );
-    return resolved?.summary ?? null;
+    return readerFactory(project).getSessionSummary(sessionId, project.id);
   };
   const supervisor = new Supervisor({
     sdk: options.sdk,
@@ -517,9 +434,6 @@ export function createApp(options: AppOptions): AppResult {
       codexScanner,
       codexSessionsDir: CODEX_SESSIONS_DIR,
       codexReaderFactory,
-      geminiScanner,
-      geminiSessionsDir: GEMINI_TMP_DIR,
-      geminiReaderFactory,
     }),
   );
   app.route(
@@ -535,9 +449,6 @@ export function createApp(options: AppOptions): AppResult {
       codexScanner,
       codexSessionsDir: CODEX_SESSIONS_DIR,
       codexReaderFactory,
-      geminiScanner,
-      geminiSessionsDir: GEMINI_TMP_DIR,
-      geminiReaderFactory,
       serverSettingsService: options.serverSettingsService,
       modelInfoService: options.modelInfoService,
     }),
@@ -549,25 +460,10 @@ export function createApp(options: AppOptions): AppResult {
       scanner,
       readerFactory,
       processSessionSourceFactory: (process, project) => {
-        switch (process.provider) {
-          case "codex":
-          case "codex-oss":
-            return {
-              reader: codexReaderFactory(project.path),
-              sessionDir: CODEX_SESSIONS_DIR,
-            };
-          case "gemini":
-          case "gemini-acp":
-            return {
-              reader: geminiReaderFactory(project.path),
-              sessionDir: GEMINI_TMP_DIR,
-            };
-          default:
-            return {
-              reader: readerFactory(project),
-              sessionDir: project.sessionDir,
-            };
-        }
+        return {
+          reader: codexReaderFactory(project.path),
+          sessionDir: CODEX_SESSIONS_DIR,
+        };
       },
       sessionIndexService: options.sessionIndexService,
     }),
@@ -586,9 +482,6 @@ export function createApp(options: AppOptions): AppResult {
       codexScanner,
       codexSessionsDir: CODEX_SESSIONS_DIR,
       codexReaderFactory,
-      geminiScanner,
-      geminiSessionsDir: GEMINI_TMP_DIR,
-      geminiReaderFactory,
     }),
   );
 
@@ -606,9 +499,22 @@ export function createApp(options: AppOptions): AppResult {
       codexScanner,
       codexSessionsDir: CODEX_SESSIONS_DIR,
       codexReaderFactory,
-      geminiScanner,
-      geminiSessionsDir: GEMINI_TMP_DIR,
-      geminiReaderFactory,
+      eventBus: options.eventBus,
+    }),
+  );
+  app.route(
+    "/api/threads",
+    createGlobalSessionsRoutes({
+      scanner,
+      readerFactory,
+      supervisor,
+      externalTracker,
+      notificationService: options.notificationService,
+      sessionIndexService: options.sessionIndexService,
+      sessionMetadataService: options.sessionMetadataService,
+      codexScanner,
+      codexSessionsDir: CODEX_SESSIONS_DIR,
+      codexReaderFactory,
       eventBus: options.eventBus,
     }),
   );
@@ -631,19 +537,15 @@ export function createApp(options: AppOptions): AppResult {
         codexScanner,
         codexSessionsDir: CODEX_SESSIONS_DIR,
         codexReaderFactory,
-        geminiScanner,
-        geminiSessionsDir: GEMINI_TMP_DIR,
-        geminiReaderFactory,
       }),
     );
   }
 
   // Provider routes (multi-provider detection)
   app.route(
-    "/api/providers",
-    createProvidersRoutes({
+    "/api/codex/runtimes",
+    createCodexRuntimesRoutes({
       modelInfoService: options.modelInfoService,
-      enabledProviders: options.enabledProviders,
     }),
   );
 
@@ -658,15 +560,6 @@ export function createApp(options: AppOptions): AppResult {
           ? (enabled) =>
               options.remoteSessionService?.setDiskPersistenceEnabled(enabled)
           : undefined,
-        onOllamaUrlChanged: (url) => {
-          ClaudeOllamaProvider.setOllamaUrl(url);
-        },
-        onOllamaSystemPromptChanged: (prompt) => {
-          ClaudeOllamaProvider.setSystemPrompt(prompt);
-        },
-        onOllamaUseFullSystemPromptChanged: (enabled) => {
-          ClaudeOllamaProvider.setUseFullSystemPrompt(enabled);
-        },
       }),
     );
   }

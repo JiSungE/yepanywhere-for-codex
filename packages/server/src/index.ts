@@ -39,7 +39,6 @@ import {
 import { updateAllowedHosts } from "./middleware/allowed-hosts.js";
 import { NotificationService } from "./notifications/index.js";
 import { CodexSessionScanner } from "./projects/codex-scanner.js";
-import { GeminiSessionScanner } from "./projects/gemini-scanner.js";
 import { ProjectScanner } from "./projects/scanner.js";
 import { PushService, getOrCreateVapidKeys } from "./push/index.js";
 import { RecentsService } from "./recents/index.js";
@@ -51,9 +50,8 @@ import { createUploadRoutes } from "./routes/upload.js";
 import { getServerCompatibilityInfo } from "./routes/version.js";
 import { createWsRelayRoutes } from "./routes/ws-relay.js";
 import { createAcceptRelayConnection } from "./routes/ws-relay.js";
-import { detectClaudeCli, detectCodexCli } from "./sdk/cli-detection.js";
+import { detectCodexCli } from "./sdk/cli-detection.js";
 import { initMessageLogger } from "./sdk/messageLogger.js";
-import { ClaudeOllamaProvider } from "./sdk/providers/claude-ollama.js";
 import { RealClaudeSDK } from "./sdk/real.js";
 import {
   BrowserProfileService,
@@ -65,7 +63,6 @@ import {
   ServerSettingsService,
   SharingService,
 } from "./services/index.js";
-import { ClaudeSessionReader } from "./sessions/reader.js";
 import { UploadManager } from "./uploads/manager.js";
 import {
   EventBus,
@@ -74,7 +71,7 @@ import {
   SourceWatcher,
 } from "./watcher/index.js";
 
-// Allow many concurrent Claude sessions without listener warnings.
+// Allow many concurrent Codex sessions without listener warnings.
 // Each SDK session registers an exit handler; default limit is 10.
 process.setMaxListeners(50);
 
@@ -190,20 +187,6 @@ console.log(
   `[Config] Log file: ${getLogFilePath({ logDir: config.logDir, logFile: config.logFile })}`,
 );
 
-// Check for Claude CLI (optional - warn if not found)
-const cliInfo = detectClaudeCli();
-if (cliInfo.found) {
-  console.log(`Claude CLI found: ${cliInfo.path} (${cliInfo.version})`);
-} else {
-  console.warn("Warning: Claude CLI not found.");
-  console.warn("Claude Code sessions will not be available.");
-  console.warn(
-    process.platform === "win32"
-      ? "Install: irm https://claude.ai/install.ps1 | iex"
-      : "Install: curl -fsSL https://claude.ai/install.sh | bash",
-  );
-}
-
 function parseCodexVersion(raw: string | undefined): string | null {
   if (!raw) return null;
   const match = raw.match(/\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?/);
@@ -279,10 +262,7 @@ const eventBus = new EventBus();
 const fileWatchers: FileWatcher[] = [];
 
 // Helper to create watcher if directory exists
-function createWatcherIfExists(
-  watchDir: string,
-  provider: "claude" | "gemini" | "codex",
-): void {
+function createWatcherIfExists(watchDir: string, provider: "codex"): void {
   if (fs.existsSync(watchDir)) {
     const periodicRescanMs =
       provider === "codex" ? config.codexWatchPeriodicRescanMs : 0;
@@ -301,10 +281,7 @@ function createWatcherIfExists(
   }
 }
 
-// Create watchers for session directories only (not full provider dirs)
-// This reduces inotify pressure and memory usage
-createWatcherIfExists(config.claudeSessionsDir, "claude");
-createWatcherIfExists(config.geminiSessionsDir, "gemini");
+// Create watchers for Codex session directories only.
 createWatcherIfExists(config.codexSessionsDir, "codex");
 
 // When running without tsx watch (NO_BACKEND_RELOAD=true), start source watcher
@@ -326,7 +303,7 @@ const projectMetadataService = new ProjectMetadataService({
   dataDir: config.dataDir,
 });
 const sessionIndexService = new SessionIndexService({
-  projectsDir: config.claudeProjectsDir,
+  projectsDir: config.codexSessionsDir,
   dataDir: path.join(config.dataDir, "indexes"),
   fullValidationIntervalMs: config.sessionIndexFullValidationMs,
   writeLockTimeoutMs: config.sessionIndexWriteLockTimeoutMs,
@@ -408,20 +385,8 @@ async function startServer() {
   // Seed allowed hosts middleware from persisted settings
   updateAllowedHosts(serverSettingsService.getSetting("allowedHosts"));
 
-  // Seed Ollama settings from persisted settings
-  const savedOllamaUrl = serverSettingsService.getSetting("ollamaUrl");
-  if (savedOllamaUrl) {
-    ClaudeOllamaProvider.setOllamaUrl(savedOllamaUrl);
-  }
-  ClaudeOllamaProvider.setSystemPrompt(
-    serverSettingsService.getSetting("ollamaSystemPrompt"),
-  );
-  ClaudeOllamaProvider.setUseFullSystemPrompt(
-    serverSettingsService.getSetting("ollamaUseFullSystemPrompt") ?? false,
-  );
-
-  // Warm model info cache (non-blocking, best-effort)
-  modelInfoService.warmProvider("claude-ollama").catch(() => {});
+  // Warm Codex model info cache (non-blocking, best-effort)
+  modelInfoService.warmProvider("codex").catch(() => {});
 
   // Log auth status
   if (config.authDisabled) {
@@ -498,7 +463,7 @@ async function startServer() {
   // We'll add WebSocket routes after setting up WebSocket support
   const { app, supervisor, scanner } = createApp({
     realSdk,
-    projectsDir: config.claudeProjectsDir,
+    projectsDir: config.codexSessionsDir,
     idleTimeoutMs: config.idleTimeoutMs,
     defaultPermissionMode: config.defaultPermissionMode,
     eventBus,
@@ -532,7 +497,6 @@ async function startServer() {
     sharingService,
     deviceBridgeService,
     modelInfoService,
-    enabledProviders: config.enabledProviders,
     voiceInputEnabled: config.voiceInputEnabled,
     allowedImagePaths: config.allowedImagePaths,
   });
@@ -542,9 +506,11 @@ async function startServer() {
     codexScanner: new CodexSessionScanner({
       sessionsDir: config.codexSessionsDir,
     }),
-    geminiScanner: new GeminiSessionScanner({
-      sessionsDir: config.geminiSessionsDir,
-    }),
+    geminiScanner: {
+      async getSessionsForProject() {
+        return [];
+      },
+    },
   });
 
   // Set service references for graceful shutdown
@@ -554,13 +520,13 @@ async function startServer() {
   // Set up debug context for maintenance server
   setDebugContext({
     supervisor,
-    claudeSessionsDir: config.claudeSessionsDir,
+    claudeSessionsDir: config.codexSessionsDir,
     getSessionReader: async (projectPath: string) => {
       // Find the project by scanning - projectPath is the absolute path
       const projects = await scanner.listProjects();
       const project = projects.find((p) => p.path === projectPath);
-      if (!project || project.provider !== "claude") return null;
-      return new ClaudeSessionReader({ sessionDir: project.sessionDir });
+      if (!project) return null;
+      return null;
     },
   });
 
@@ -572,7 +538,7 @@ async function startServer() {
   // Add upload routes with WebSocket support
   // These must be added BEFORE the frontend proxy catch-all
   const uploadScanner = new ProjectScanner({
-    projectsDir: config.claudeProjectsDir,
+    projectsDir: config.codexSessionsDir,
   });
   const uploadRoutes = createUploadRoutes({
     scanner: uploadScanner,
@@ -927,7 +893,7 @@ async function startServer() {
       const serverUrl = `${serverProtocol}://127.0.0.1:${info.port}`;
       console.log(`Server URL: ${serverUrl}`);
       console.log(`Server running at ${serverUrl}`);
-      console.log(`Projects dir: ${config.claudeProjectsDir}`);
+      console.log(`Projects dir: ${config.codexSessionsDir}`);
       console.log(`Permission mode: ${config.defaultPermissionMode}`);
 
       if (config.openBrowser) {

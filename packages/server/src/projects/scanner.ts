@@ -1,31 +1,20 @@
-import { access, readdir, stat } from "node:fs/promises";
-import { homedir } from "node:os";
+import { readdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
-import {
-  DEFAULT_PROVIDER,
-  type ProviderName,
-  type UrlProjectId,
-} from "@yep-anywhere/shared";
+import { DEFAULT_PROVIDER, type UrlProjectId } from "@yep-anywhere/shared";
 import type { ProjectMetadataService } from "../metadata/index.js";
 import type { Project } from "../supervisor/types.js";
 import type { EventBus, FileChangeEvent } from "../watcher/index.js";
 import { CODEX_SESSIONS_DIR, CodexSessionScanner } from "./codex-scanner.js";
-import { GEMINI_TMP_DIR, GeminiSessionScanner } from "./gemini-scanner.js";
 import {
-  CLAUDE_PROJECTS_DIR,
   decodeProjectId,
-  encodeProjectId,
   isAbsolutePath,
-  normalizeProjectPathForDedup,
   readCwdFromSessionFile,
 } from "./paths.js";
 
 export interface ScannerOptions {
-  projectsDir?: string; // override for testing
+  projectsDir?: string; // deprecated no-op, kept for call-site compatibility
   codexSessionsDir?: string; // override for testing
-  geminiSessionsDir?: string; // override for testing
   enableCodex?: boolean; // whether to include Codex projects (default: true)
-  enableGemini?: boolean; // whether to include Gemini projects (default: true)
   projectMetadataService?: ProjectMetadataService; // for persisting added projects
   /** Optional EventBus for watcher-driven cache invalidation */
   eventBus?: EventBus;
@@ -41,11 +30,8 @@ interface ProjectSnapshot {
 }
 
 export class ProjectScanner {
-  private projectsDir: string;
   private codexScanner: CodexSessionScanner | null;
-  private geminiScanner: GeminiSessionScanner | null;
   private enableCodex: boolean;
-  private enableGemini: boolean;
   private projectMetadataService: ProjectMetadataService | null;
   private cacheTtlMs: number;
   private cacheDirty = true;
@@ -54,17 +40,10 @@ export class ProjectScanner {
   private unsubscribeEventBus: (() => void) | null = null;
 
   constructor(options: ScannerOptions = {}) {
-    this.projectsDir = options.projectsDir ?? CLAUDE_PROJECTS_DIR;
     this.enableCodex = options.enableCodex ?? true;
-    this.enableGemini = options.enableGemini ?? true;
     this.codexScanner = this.enableCodex
       ? new CodexSessionScanner({
           sessionsDir: options.codexSessionsDir ?? CODEX_SESSIONS_DIR,
-        })
-      : null;
-    this.geminiScanner = this.enableGemini
-      ? new GeminiSessionScanner({
-          sessionsDir: options.geminiSessionsDir ?? GEMINI_TMP_DIR,
         })
       : null;
     this.projectMetadataService = options.projectMetadataService ?? null;
@@ -163,11 +142,7 @@ export class ProjectScanner {
   }
 
   private sessionDirToSuffix(sessionDir: string): string {
-    // Claude session dirs live under projectsDir; codex/gemini do not.
-    const relative = sessionDir.startsWith(this.projectsDir)
-      ? sessionDir.slice(this.projectsDir.length)
-      : sessionDir;
-    return relative.replace(/^[\\/]+/, "");
+    return sessionDir.replace(/^[\\/]+/, "");
   }
 
   private normalizeDirSuffix(value: string): string {
@@ -195,156 +170,14 @@ export class ProjectScanner {
   private async scanProjects(): Promise<Project[]> {
     const projects: Project[] = [];
     const seenPaths = new Set<string>();
-    // Map from normalized path to project index for cross-machine dedup
-    const normalizedIndex = new Map<string, number>();
 
-    // ~/.claude/projects/ can have two structures:
-    // 1. Projects directly as -home-user-project/
-    // 2. Projects under hostname/ as hostname/-home-user-project/
-    let dirs: string[] = [];
-    try {
-      await access(this.projectsDir);
-      const entries = await readdir(this.projectsDir, { withFileTypes: true });
-      dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
-    } catch {
-      // Directory doesn't exist or unreadable — skip Claude project scanning
-      // but continue to Codex/Gemini/metadata merge below
-    }
-
-    // Helper to add a Claude project, merging cross-machine duplicates
-    const addOrMerge = (
-      rawProjectPath: string,
-      sessionDir: string,
-      sessionCount: number,
-      lastActivity: string | null,
-    ) => {
-      // Normalize slashes so Windows mixed-slash cwds
-      // (e.g. "C:\Users\sox/Documents/webvam" vs "C:\Users\sox\Documents\webvam")
-      // are recognized as the same path.
-      const projectPath = rawProjectPath.replace(/\\/g, "/");
-      if (seenPaths.has(projectPath)) return; // exact path duplicate
-      seenPaths.add(projectPath);
-
-      const normalized = normalizeProjectPathForDedup(projectPath);
-      const existingIdx = normalizedIndex.get(normalized);
-
-      if (existingIdx !== undefined) {
-        // Cross-machine duplicate — merge into existing project
-        const existing = projects[existingIdx];
-        if (!existing) return;
-        existing.sessionCount += sessionCount;
-        if (!existing.mergedSessionDirs) {
-          existing.mergedSessionDirs = [];
-        }
-        existing.mergedSessionDirs.push(sessionDir);
-        if (
-          lastActivity &&
-          (!existing.lastActivity || lastActivity > existing.lastActivity)
-        ) {
-          existing.lastActivity = lastActivity;
-        }
-
-        // Prefer the local path for session creation.
-        // Remote executor sessions (rsynced) may store a foreign cwd
-        // (e.g., /Users/... on a Linux host). Swap to the local path
-        // so new sessions can actually spawn in an existing directory.
-        const localHome = homedir();
-        const localHomePrefix = `${localHome}/`;
-        const localHomePrefixWin = `${localHome}\\`;
-        const existingIsLocal =
-          existing.path.startsWith(localHomePrefix) ||
-          existing.path.startsWith(localHomePrefixWin);
-        const newIsLocal =
-          projectPath.startsWith(localHomePrefix) ||
-          projectPath.startsWith(localHomePrefixWin);
-        if (!existingIsLocal && newIsLocal) {
-          existing.path = projectPath;
-          existing.id = encodeProjectId(projectPath);
-          existing.name = basename(projectPath);
-        }
-      } else {
-        normalizedIndex.set(normalized, projects.length);
-        projects.push({
-          id: encodeProjectId(projectPath),
-          path: projectPath,
-          name: basename(projectPath),
-          sessionCount,
-          sessionDir,
-          activeOwnedCount: 0, // populated by route
-          activeExternalCount: 0, // populated by route
-          lastActivity,
-          provider: "claude",
-        });
-      }
-    };
-
-    for (const dir of dirs) {
-      const dirPath = join(this.projectsDir, dir);
-
-      // Check if this is a project directory
-      // On Unix/macOS: /home/user/project → -home-user-project (starts with -)
-      // On Windows: C:\Users\kaa\project → c--Users-kaa-project (drive letter + --)
-      if (dir.startsWith("-") || /^[a-zA-Z]--/.test(dir)) {
-        const info = await this.getProjectDirInfo(dirPath);
-        if (info) {
-          addOrMerge(
-            info.projectPath,
-            dirPath,
-            info.sessionCount,
-            info.lastActivity,
-          );
-        }
-        continue;
-      }
-
-      // Otherwise, treat as hostname directory
-      // Format: ~/.claude/projects/hostname/-project-path/
-      let projectDirs: string[];
-      try {
-        const subEntries = await readdir(dirPath, { withFileTypes: true });
-        projectDirs = subEntries
-          .filter((e) => e.isDirectory())
-          .map((e) => e.name);
-      } catch {
-        continue;
-      }
-
-      for (const projectDir of projectDirs) {
-        const projectDirPath = join(dirPath, projectDir);
-        const info = await this.getProjectDirInfo(projectDirPath);
-        if (!info) continue;
-        addOrMerge(
-          info.projectPath,
-          projectDirPath,
-          info.sessionCount,
-          info.lastActivity,
-        );
-      }
-    }
-
-    // Merge Codex projects if enabled
+    // Codex projects are now the primary source of truth.
     if (this.codexScanner) {
       const codexProjects = await this.codexScanner.listProjects();
       for (const codexProject of codexProjects) {
-        // Skip if we've already seen this path from Claude
         if (seenPaths.has(codexProject.path)) continue;
         seenPaths.add(codexProject.path);
         projects.push(codexProject);
-      }
-    }
-
-    // Merge Gemini projects if enabled
-    if (this.geminiScanner) {
-      // Register known paths for hash resolution before scanning
-      await this.geminiScanner.registerKnownPaths(Array.from(seenPaths));
-
-      const geminiProjects = await this.geminiScanner.listProjects();
-      for (const geminiProject of geminiProjects) {
-        // Skip if we've already seen this path from Claude/Codex
-        // (Gemini projects with unknown hashes will have paths like "gemini:xxxxxxxx")
-        if (seenPaths.has(geminiProject.path)) continue;
-        seenPaths.add(geminiProject.path);
-        projects.push(geminiProject);
       }
     }
 
@@ -365,37 +198,18 @@ export class ProjectScanner {
         }
 
         seenPaths.add(metadata.path);
-        const encodedPath = metadata.path.replace(/[/\\:]/g, "-");
         projects.push({
           id: projectId as UrlProjectId,
           path: metadata.path,
           name: basename(metadata.path),
           sessionCount: 0,
-          sessionDir: join(this.projectsDir, encodedPath),
+          sessionDir: CODEX_SESSIONS_DIR,
           activeOwnedCount: 0,
           activeExternalCount: 0,
           lastActivity: metadata.addedAt,
-          provider: "claude",
+          provider: "codex",
         });
       }
-    }
-
-    // Fallback: if no projects were found from any source, include the user's
-    // home directory so sessions can always be created even if detection is broken
-    if (projects.length === 0) {
-      const home = homedir();
-      const encodedPath = home.replace(/[/\\:]/g, "-");
-      projects.push({
-        id: encodeProjectId(home),
-        path: home,
-        name: basename(home) || "Home",
-        sessionCount: 0,
-        sessionDir: join(this.projectsDir, encodedPath),
-        activeOwnedCount: 0,
-        activeExternalCount: 0,
-        lastActivity: null,
-        provider: "claude",
-      });
     }
 
     return projects;
@@ -409,13 +223,13 @@ export class ProjectScanner {
 
   /**
    * Get a project by ID, or create a virtual project entry if the path exists on disk
-   * but hasn't been used with Claude yet.
+   * but hasn't been used with Codex yet.
    *
-   * This allows starting sessions in new directories without requiring prior Claude usage.
+   * This allows starting sessions in new directories without requiring prior Codex usage.
    */
   async getOrCreateProject(
     projectId: string,
-    preferredProvider?: "claude" | "codex" | "gemini",
+    preferredProvider?: "codex" | "codex-oss",
   ): Promise<Project | null> {
     // First check if project already exists
     const existing = await this.getProject(projectId);
@@ -444,10 +258,9 @@ export class ProjectScanner {
       return null;
     }
 
-    // Determine provider: use preferred if specified, otherwise check for Codex/Gemini sessions
-    let provider: ProviderName = preferredProvider ?? DEFAULT_PROVIDER;
+    // Determine runtime: use preferred if specified, otherwise default to Codex.
+    let provider = preferredProvider ?? DEFAULT_PROVIDER;
     if (!preferredProvider) {
-      // Check if Codex sessions exist for this path
       if (this.codexScanner) {
         const codexSessions =
           await this.codexScanner.getSessionsForProject(projectPath);
@@ -455,29 +268,6 @@ export class ProjectScanner {
           provider = "codex";
         }
       }
-
-      // Check if Gemini sessions exist for this path (only if no Codex sessions)
-      if (provider === "claude" && this.geminiScanner) {
-        const geminiSessions =
-          await this.geminiScanner.getSessionsForProject(projectPath);
-        if (geminiSessions.length > 0) {
-          provider = "gemini";
-        }
-      }
-    }
-
-    // Create a virtual project entry
-    // The session directory will be created by the SDK when the first session starts
-    const encodedPath = projectPath.replace(/[/\\:]/g, "-");
-
-    // Determine the session directory based on provider
-    let sessionDir: string;
-    if (provider === "codex") {
-      sessionDir = CODEX_SESSIONS_DIR;
-    } else if (provider === "gemini") {
-      sessionDir = GEMINI_TMP_DIR;
-    } else {
-      sessionDir = join(this.projectsDir, encodedPath);
     }
 
     return {
@@ -485,7 +275,7 @@ export class ProjectScanner {
       path: projectPath,
       name: basename(projectPath),
       sessionCount: 0,
-      sessionDir,
+      sessionDir: CODEX_SESSIONS_DIR,
       activeOwnedCount: 0,
       activeExternalCount: 0,
       lastActivity: null,

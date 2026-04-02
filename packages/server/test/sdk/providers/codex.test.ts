@@ -75,6 +75,32 @@ describe("CodexProvider", () => {
     it("should have correct displayName", () => {
       expect(provider.displayName).toBe("Codex");
     });
+
+    it("should expose reasoning and fast-mode capability flags", () => {
+      expect(provider.supportsReasoningControl).toBe(true);
+      expect(provider.supportsFastMode).toBe(true);
+    });
+  });
+
+  describe("getAvailableModels", () => {
+    it("annotates fallback models with reasoning capabilities", async () => {
+      const fallbackProvider = new CodexProvider({
+        codexPath: "/nonexistent/codex",
+      });
+
+      const models = await fallbackProvider.getAvailableModels();
+      const codex53 = models.find((model) => model.id === "gpt-5.3-codex");
+      const codex51 = models.find((model) => model.id === "gpt-5.1-codex-max");
+
+      expect(codex53?.reasoningEfforts).toEqual([
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+      ]);
+      expect(codex53?.supportsFastMode).toBe(false);
+      expect(codex51?.reasoningEfforts).toEqual(["low", "medium", "high"]);
+    });
   });
 
   describe("startSession", () => {

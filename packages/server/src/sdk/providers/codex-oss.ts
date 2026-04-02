@@ -172,7 +172,9 @@ export class CodexOSSProvider implements AgentProvider {
   readonly name = "codex-oss" as const;
   readonly displayName = "CodexOSS";
   readonly supportsPermissionMode = false;
+  readonly supportsReasoningControl = false;
   readonly supportsThinkingToggle = false;
+  readonly supportsFastMode = false;
   readonly supportsSlashCommands = false;
 
   private readonly codexPath?: string;
@@ -264,6 +266,8 @@ export class CodexOSSProvider implements AgentProvider {
             id: name,
             name: name,
             size: sizeBytes,
+            reasoningEfforts: [],
+            supportsFastMode: false,
           });
         }
       }

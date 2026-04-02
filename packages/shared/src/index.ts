@@ -23,11 +23,12 @@ export type {
   SlashCommand,
   PermissionMode,
   NewSessionDefaults,
-  ModelOption,
   ThinkingMode,
   ThinkingOption,
   ThinkingConfig,
   EffortLevel,
+  ReasoningEffortLevel,
+  LegacyEffortLevel,
   FileMetadata,
   FileContentResponse,
   PatchHunk,
@@ -38,9 +39,10 @@ export type {
 export {
   ALL_PROVIDERS,
   ALL_PERMISSION_MODES,
+  DEFAULT_PERMISSION_MODE,
+  reasoningEffortToConfig,
   thinkingOptionToConfig,
-  resolveModel,
-  DEFAULT_MODEL,
+  normalizeLegacyEffortLevel,
   DEFAULT_PROVIDER,
 } from "./types.js";
 
@@ -170,7 +172,6 @@ export {
 
 export type {
   UnifiedSession,
-  ClaudeSessionFile,
   CodexSessionContent,
 } from "./session/index.js";
 

@@ -1,19 +1,9 @@
 /**
- * Provider name - which AI agent provider to use.
- * - "claude": Claude via Anthropic SDK
- * - "codex": OpenAI Codex via SDK (cloud models)
+ * Provider name - which Codex runtime to use.
+ * - "codex": OpenAI Codex via the standard CLI/app-server path
  * - "codex-oss": Codex via CLI with --oss (local models via Ollama)
- * - "gemini": Google Gemini via CLI
- * - "opencode": OpenCode via HTTP server (multi-provider agent)
  */
-export type ProviderName =
-  | "claude"
-  | "claude-ollama"
-  | "codex"
-  | "codex-oss"
-  | "gemini"
-  | "gemini-acp"
-  | "opencode";
+export type ProviderName = "codex" | "codex-oss";
 
 /**
  * All provider names in display order.
@@ -21,20 +11,15 @@ export type ProviderName =
  * Keep in sync with ProviderName type above.
  */
 export const ALL_PROVIDERS: readonly ProviderName[] = [
-  "claude",
-  "claude-ollama",
   "codex",
   "codex-oss",
-  "gemini",
-  "gemini-acp",
-  "opencode",
 ] as const;
 
 /**
  * The default provider when none is specified.
  * Used for backward compatibility with existing sessions that don't have provider set.
  */
-export const DEFAULT_PROVIDER: ProviderName = "claude";
+export const DEFAULT_PROVIDER: ProviderName = "codex";
 
 /**
  * Model information for a provider.
@@ -56,6 +41,10 @@ export interface ModelInfo {
   parentModel?: string;
   /** Quantization level, e.g. "Q4_K_M" */
   quantizationLevel?: string;
+  /** Supported reasoning levels for the model in the composer UI */
+  reasoningEfforts?: ReasoningEffortLevel[];
+  /** Whether the model supports Codex fast mode */
+  supportsFastMode?: boolean;
 }
 
 /**
@@ -85,8 +74,12 @@ export interface ProviderInfo {
   models?: ModelInfo[];
   /** Whether this provider supports permission modes (default: true for backward compat) */
   supportsPermissionMode?: boolean;
-  /** Whether this provider supports extended thinking toggle (default: true for backward compat) */
+  /** Whether this provider supports Codex-style reasoning controls */
+  supportsReasoningControl?: boolean;
+  /** Whether this provider supports extended thinking toggle (deprecated, backward compat) */
   supportsThinkingToggle?: boolean;
+  /** Whether this provider supports fast mode at all */
+  supportsFastMode?: boolean;
   /** Whether this provider supports slash commands (default: false) */
   supportsSlashCommands?: boolean;
 }
@@ -103,6 +96,12 @@ export type PermissionMode =
   | "bypassPermissions"
   | "acceptEdits"
   | "plan";
+
+/**
+ * Default permission mode for Yep Anywhere when the user has not explicitly
+ * chosen a different mode yet.
+ */
+export const DEFAULT_PERMISSION_MODE: PermissionMode = "bypassPermissions";
 
 /**
  * All permission modes in canonical order.
@@ -126,34 +125,20 @@ export interface NewSessionDefaults {
 }
 
 /**
- * Model option for Claude sessions.
- * - "default": Use the CLI's default model
- * - "sonnet": Claude Sonnet
- * - "opus": Claude Opus
- * - "haiku": Claude Haiku
+ * Reasoning effort level exposed in the Codex app composer.
  */
-export type ModelOption = "default" | "sonnet" | "opus" | "haiku";
+export type ReasoningEffortLevel = "low" | "medium" | "high" | "xhigh";
 
 /**
- * The default model when "default" is selected.
+ * Effort level for SDK/provider wiring.
+ * Kept as an alias to minimize churn across server code.
  */
-export const DEFAULT_MODEL: Exclude<ModelOption, "default"> = "opus";
+export type EffortLevel = ReasoningEffortLevel;
 
 /**
- * Resolve a model option to the actual model name.
- * Maps "default" to the actual default model (opus).
+ * Legacy effort values that may still appear in old localStorage or API clients.
  */
-export function resolveModel(
-  model: ModelOption | undefined,
-): Exclude<ModelOption, "default"> {
-  return model === "default" || !model ? DEFAULT_MODEL : model;
-}
-
-/**
- * Effort level for Claude's response quality.
- * Maps to the SDK's effort parameter.
- */
-export type EffortLevel = "low" | "medium" | "high" | "max";
+export type LegacyEffortLevel = ReasoningEffortLevel | "max";
 
 /**
  * Thinking mode for the 3-way toggle.
@@ -171,7 +156,11 @@ export type ThinkingMode = "off" | "auto" | "on";
  * - "on:low" | "on:medium" | "on:high" | "on:max": Forced-on thinking at effort level
  * - EffortLevel (plain): Adaptive thinking with effort (backward compat with old clients)
  */
-export type ThinkingOption = "off" | "auto" | `on:${EffortLevel}` | EffortLevel;
+export type ThinkingOption =
+  | "off"
+  | "auto"
+  | `on:${LegacyEffortLevel}`
+  | LegacyEffortLevel;
 
 /**
  * Thinking configuration for the SDK.
@@ -180,6 +169,28 @@ export type ThinkingConfig =
   | { type: "adaptive" }
   | { type: "enabled"; budgetTokens?: number }
   | { type: "disabled" };
+
+export function normalizeLegacyEffortLevel(
+  level: LegacyEffortLevel,
+): ReasoningEffortLevel {
+  return level === "max" ? "xhigh" : level;
+}
+
+/**
+ * Convert a composer reasoning setting to SDK thinking config + effort level.
+ * New UI always uses adaptive thinking with an explicit effort level.
+ */
+export function reasoningEffortToConfig(
+  reasoningEffort: ReasoningEffortLevel | undefined,
+): {
+  thinking: ThinkingConfig | undefined;
+  effort?: EffortLevel;
+} {
+  if (!reasoningEffort) {
+    return { thinking: undefined, effort: undefined };
+  }
+  return { thinking: { type: "adaptive" }, effort: reasoningEffort };
+}
 
 /**
  * Convert thinking option to SDK thinking config + effort level.
@@ -198,11 +209,16 @@ export function thinkingOptionToConfig(option: ThinkingOption): {
   }
   // "on:high" etc. = adaptive thinking with explicit effort level
   if (option.startsWith("on:")) {
-    const effort = option.slice(3) as EffortLevel;
+    const effort = normalizeLegacyEffortLevel(
+      option.slice(3) as LegacyEffortLevel,
+    );
     return { thinking: { type: "adaptive" }, effort };
   }
   // Plain EffortLevel = adaptive + effort (backward compat with old clients)
-  return { thinking: { type: "adaptive" }, effort: option as EffortLevel };
+  return {
+    thinking: { type: "adaptive" },
+    effort: normalizeLegacyEffortLevel(option as LegacyEffortLevel),
+  };
 }
 
 /**

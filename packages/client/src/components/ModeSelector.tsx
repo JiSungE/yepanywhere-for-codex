@@ -1,21 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
+import { normalizeVisiblePermissionMode } from "../lib/permissionMode";
 import type { PermissionMode } from "../types";
 
-const MODE_ORDER: PermissionMode[] = [
-  "default",
-  "acceptEdits",
-  "plan",
-  "bypassPermissions",
-];
-
-const MODE_LABELS: Record<PermissionMode, string> = {
-  default: "Ask before edits",
-  acceptEdits: "Edit automatically",
-  plan: "Plan mode",
-  bypassPermissions: "Bypass permissions",
-};
+const MODE_ORDER: PermissionMode[] = ["bypassPermissions", "plan"];
 
 // Breakpoint for desktop behavior (should match CSS)
 const DESKTOP_BREAKPOINT = 769;
@@ -43,6 +32,7 @@ export function ModeSelector({
   onHoldChange,
 }: ModeSelectorProps) {
   const { t } = useI18n();
+  const normalizedMode = normalizeVisiblePermissionMode(mode);
   const [isOpen, setIsOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(
     () => window.innerWidth >= DESKTOP_BREAKPOINT,
@@ -63,7 +53,7 @@ export function ModeSelector({
     if (isHeld && onHoldChange) {
       onHoldChange(false);
     }
-    onModeChange(selectedMode);
+    onModeChange(normalizeVisiblePermissionMode(selectedMode));
     setIsOpen(false);
   };
 
@@ -147,8 +137,20 @@ export function ModeSelector({
   };
 
   // Display text: show "Hold" when held, otherwise show mode label
-  const displayLabel = isHeld ? t("modeHold" as never) : MODE_LABELS[mode];
-  const displayDotClass = isHeld ? "mode-hold" : `mode-${mode}`;
+  const modeLabels: Record<PermissionMode, string> = {
+    default: t("modeBypassPermissionsLabel"),
+    acceptEdits: t("modeBypassPermissionsLabel"),
+    plan: t("modePlanLabel"),
+    bypassPermissions: t("modeBypassPermissionsLabel"),
+  };
+  const modeDescriptions: Record<PermissionMode, string> = {
+    default: t("modeBypassPermissionsDescription"),
+    acceptEdits: t("modeBypassPermissionsDescription"),
+    plan: t("modePlanDescription"),
+    bypassPermissions: t("modeBypassPermissionsDescription"),
+  };
+  const displayLabel = isHeld ? t("modeHold" as never) : modeLabels[normalizedMode];
+  const displayDotClass = isHeld ? "mode-hold" : `mode-${normalizedMode}`;
 
   // Shared options content used by both mobile sheet and desktop dropdown
   const optionsContent = (
@@ -162,13 +164,15 @@ export function ModeSelector({
           aria-pressed={isHeld}
         >
           <span className="mode-dot mode-hold" />
-          <span className="mode-selector-label">
-            {isHeld ? t("modeResume" as never) : t("modeHold" as never)}
-          </span>
-          <span className="mode-selector-description">
-            {isHeld
-              ? t("modeContinueExecution" as never)
-              : t("modePauseExecution" as never)}
+          <span className="mode-selector-content">
+            <span className="mode-selector-label">
+              {isHeld ? t("modeResume" as never) : t("modeHold" as never)}
+            </span>
+            <span className="mode-selector-description">
+              {isHeld
+                ? t("modeContinueExecution" as never)
+                : t("modePauseExecution" as never)}
+            </span>
           </span>
           {isHeld && (
             <span className="mode-selector-check" aria-hidden="true">
@@ -198,13 +202,18 @@ export function ModeSelector({
         <button
           key={m}
           type="button"
-          className={`mode-selector-option ${!isHeld && mode === m ? "selected" : ""}`}
+          className={`mode-selector-option ${!isHeld && normalizedMode === m ? "selected" : ""}`}
           onClick={() => handleModeSelect(m)}
-          aria-pressed={!isHeld && mode === m}
+          aria-pressed={!isHeld && normalizedMode === m}
         >
           <span className={`mode-dot mode-${m}`} />
-          <span className="mode-selector-label">{MODE_LABELS[m]}</span>
-          {!isHeld && mode === m && (
+          <span className="mode-selector-content">
+            <span className="mode-selector-label">{modeLabels[m]}</span>
+            <span className="mode-selector-description">
+              {modeDescriptions[m]}
+            </span>
+          </span>
+          {!isHeld && normalizedMode === m && (
             <span className="mode-selector-check" aria-hidden="true">
               <svg
                 width="16"

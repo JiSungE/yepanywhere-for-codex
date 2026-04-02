@@ -67,17 +67,19 @@ function getStaleInTurnThresholdMs(provider: ProviderName): number {
  * Model and thinking settings for a session.
  */
 export interface ModelSettings {
-  /** Model to use (e.g., "sonnet", "opus", "haiku"). undefined = use CLI default */
+  /** Model to use. undefined = use the runtime default */
   model?: string;
   /** Thinking configuration. undefined = thinking disabled */
   thinking?: ThinkingConfig;
   /** Effort level for response quality. undefined = SDK default */
   effort?: EffortLevel;
-  /** Provider to use for this session. undefined = use default (Claude) */
+  /** Whether fast mode is enabled for the session */
+  fastMode?: boolean;
+  /** Provider to use for this session. undefined = use the default Codex runtime */
   providerName?: ProviderName;
   /** SSH host for remote execution (undefined = local) */
   executor?: string;
-  /** Environment variables to set on remote (for testing: CLAUDE_SESSIONS_DIR) */
+  /** Environment variables to set on remote (for testing: CODEX_* overrides) */
   remoteEnv?: Record<string, string>;
   /** Global instructions to append to system prompt (from server settings) */
   globalInstructions?: string;
@@ -215,7 +217,7 @@ export class Supervisor {
     const provider = modelSettings?.providerName
       ? getProvider(modelSettings.providerName)
       : modelSettings?.executor
-        ? getProvider("claude") // Force Claude provider when executor is specified
+        ? getProvider("codex")
         : this.provider;
 
     // Use provider if available (preferred)
@@ -297,7 +299,7 @@ export class Supervisor {
     const provider = modelSettings?.providerName
       ? getProvider(modelSettings.providerName)
       : modelSettings?.executor
-        ? getProvider("claude") // Force Claude provider when executor is specified
+        ? getProvider("codex")
         : this.provider;
 
     // Use provider if available (preferred)
@@ -352,6 +354,7 @@ export class Supervisor {
       model: modelSettings?.model,
       thinking: modelSettings?.thinking,
       effort: modelSettings?.effort,
+      fastMode: modelSettings?.fastMode,
       globalInstructions: modelSettings?.globalInstructions,
       onToolApproval: async (toolName, input, opts) => {
         if (!processHolder.process) {
@@ -392,10 +395,11 @@ export class Supervisor {
       supportedCommandsFn: supportedCommands,
       setModelFn: setModel,
       permissionMode: effectiveMode,
-      provider: "claude", // Real SDK is always Claude
+      provider: "codex",
       model: modelSettings?.model,
       thinking: modelSettings?.thinking,
       effort: modelSettings?.effort,
+      fastMode: modelSettings?.fastMode,
       executor: modelSettings?.executor,
       permissions: modelSettings?.permissions,
     };
@@ -452,6 +456,7 @@ export class Supervisor {
       model: modelSettings?.model,
       thinking: modelSettings?.thinking,
       effort: modelSettings?.effort,
+      fastMode: modelSettings?.fastMode,
       executor: modelSettings?.executor,
       remoteEnv: modelSettings?.remoteEnv,
       globalInstructions: modelSettings?.globalInstructions,
@@ -494,10 +499,11 @@ export class Supervisor {
       supportedCommandsFn: supportedCommands,
       setModelFn: setModel,
       permissionMode: effectiveMode,
-      provider: "claude", // Real SDK is always Claude
+      provider: "codex",
       model: modelSettings?.model,
       thinking: modelSettings?.thinking,
       effort: modelSettings?.effort,
+      fastMode: modelSettings?.fastMode,
       executor: modelSettings?.executor,
       permissions: modelSettings?.permissions,
     };
@@ -549,6 +555,7 @@ export class Supervisor {
       model: modelSettings?.model,
       thinking: modelSettings?.thinking,
       effort: modelSettings?.effort,
+      fastMode: modelSettings?.fastMode,
       executor: modelSettings?.executor,
       remoteEnv: modelSettings?.remoteEnv,
       globalInstructions: modelSettings?.globalInstructions,
@@ -597,6 +604,7 @@ export class Supervisor {
       model: modelSettings?.model,
       thinking: modelSettings?.thinking,
       effort: modelSettings?.effort,
+      fastMode: modelSettings?.fastMode,
       executor: modelSettings?.executor,
       permissions: modelSettings?.permissions,
     };
@@ -650,6 +658,7 @@ export class Supervisor {
       model: modelSettings?.model,
       thinking: modelSettings?.thinking,
       effort: modelSettings?.effort,
+      fastMode: modelSettings?.fastMode,
       executor: modelSettings?.executor,
       remoteEnv: modelSettings?.remoteEnv,
       globalInstructions: modelSettings?.globalInstructions,
@@ -697,6 +706,7 @@ export class Supervisor {
       model: modelSettings?.model,
       thinking: modelSettings?.thinking,
       effort: modelSettings?.effort,
+      fastMode: modelSettings?.fastMode,
       executor: modelSettings?.executor,
       permissions: modelSettings?.permissions,
     };
@@ -747,7 +757,7 @@ export class Supervisor {
       sessionId,
       idleTimeoutMs: this.idleTimeoutMs,
       permissionMode: effectiveMode,
-      provider: "claude", // Legacy mock SDK simulates Claude
+      provider: "codex"
     };
 
     const process = new Process(iterator, options);
@@ -782,11 +792,14 @@ export class Supervisor {
             (modelSettings?.thinking?.type ?? undefined);
           const effortChanged =
             existingProcess.effort !== modelSettings?.effort;
+          const fastModeChanged =
+            existingProcess.fastMode !== modelSettings?.fastMode;
 
-          if (thinkingChanged || effortChanged) {
+          if (thinkingChanged || effortChanged || fastModeChanged) {
             if (
               thinkingChanged &&
               !effortChanged &&
+              !fastModeChanged &&
               existingProcess.supportsThinkingModeChange
             ) {
               // Toggle adaptive/disabled dynamically via deprecated API
@@ -821,10 +834,12 @@ export class Supervisor {
                   processId: existingProcess.id,
                   oldThinking: existingProcess.thinking?.type,
                   oldEffort: existingProcess.effort,
+                  oldFastMode: existingProcess.fastMode,
                   newThinking: modelSettings?.thinking?.type,
                   newEffort: modelSettings?.effort,
+                  newFastMode: modelSettings?.fastMode,
                 },
-                "Thinking/effort changed, restarting process",
+                "Thinking/effort/fast mode changed, restarting process",
               );
               await existingProcess.abort();
               this.unregisterProcess(existingProcess);
@@ -895,7 +910,7 @@ export class Supervisor {
     const provider = modelSettings?.providerName
       ? getProvider(modelSettings.providerName)
       : modelSettings?.executor
-        ? getProvider("claude") // Force Claude provider when executor is specified
+        ? getProvider("codex")
         : this.provider;
 
     // Use provider if available (preferred)
@@ -975,11 +990,13 @@ export class Supervisor {
     const thinkingChanged =
       process.thinking?.type !== (modelSettings?.thinking?.type ?? undefined);
     const effortChanged = process.effort !== modelSettings?.effort;
+    const fastModeChanged = process.fastMode !== modelSettings?.fastMode;
 
-    if (thinkingChanged || effortChanged) {
+    if (thinkingChanged || effortChanged || fastModeChanged) {
       if (
         thinkingChanged &&
         !effortChanged &&
+        !fastModeChanged &&
         process.supportsThinkingModeChange
       ) {
         // Toggle thinking dynamically via deprecated API (works for auto↔off)
@@ -1013,10 +1030,12 @@ export class Supervisor {
             processId: process.id,
             oldThinking: process.thinking?.type,
             oldEffort: process.effort,
+            oldFastMode: process.fastMode,
             newThinking: modelSettings?.thinking?.type,
             newEffort: modelSettings?.effort,
+            newFastMode: modelSettings?.fastMode,
           },
-          "Thinking/effort changed on queue, restarting process",
+          "Thinking/effort/fast mode changed on queue, restarting process",
         );
 
         await process.abort();

@@ -526,6 +526,74 @@ describe("Process", () => {
       expect(process.queueDepth).toBe(1);
     });
 
+    it("preserves session-scoped approvals for Codex requests", async () => {
+      const iterator = createMockIterator([]);
+      const process = new Process(iterator, {
+        projectPath: "/test",
+        projectId: "proj-1",
+        sessionId: "sess-1",
+        idleTimeoutMs: 100,
+        provider: "codex",
+      });
+
+      const abortController = new AbortController();
+      const approvalPromise = process.handleToolApproval(
+        "Bash",
+        { command: "git status" },
+        { signal: abortController.signal },
+      );
+
+      const pendingRequest = process.getPendingInputRequest();
+      expect(pendingRequest?.approvalOptions?.allowForSession).toBe(true);
+
+      const accepted = process.respondToInput(
+        pendingRequest?.id ?? "",
+        "approve_session",
+      );
+
+      expect(accepted).toBe(true);
+      const result = await approvalPromise;
+      expect(result.behavior).toBe("allow");
+      expect(result.scope).toBe("session");
+    });
+
+    it("preserves exec policy amendments for Codex requests", async () => {
+      const iterator = createMockIterator([]);
+      const process = new Process(iterator, {
+        projectPath: "/test",
+        projectId: "proj-1",
+        sessionId: "sess-1",
+        idleTimeoutMs: 100,
+        provider: "codex",
+      });
+
+      const abortController = new AbortController();
+      const approvalPromise = process.handleToolApproval(
+        "Bash",
+        {
+          command: "curl https://example.com",
+          proposedExecpolicyAmendment: ["https://example.com"],
+        },
+        { signal: abortController.signal },
+      );
+
+      const pendingRequest = process.getPendingInputRequest();
+      expect(
+        pendingRequest?.approvalOptions?.allowWithExecPolicyAmendment,
+      ).toBe(true);
+
+      const accepted = process.respondToInput(
+        pendingRequest?.id ?? "",
+        "approve_policy_amendment",
+      );
+
+      expect(accepted).toBe(true);
+      const result = await approvalPromise;
+      expect(result.behavior).toBe("allow");
+      expect(result.scope).toBe("policy-amendment");
+      expect(result.execPolicyAmendment).toEqual(["https://example.com"]);
+    });
+
     it("does not queue deny feedback follow-up for non-Codex providers", async () => {
       const iterator = createMockIterator([]);
       const process = new Process(iterator, {
@@ -592,8 +660,8 @@ describe("Process", () => {
 
       const result = await approvalPromise;
       expect(result.behavior).toBe("allow");
-      // After approval, should switch back to default mode
-      expect(process.permissionMode).toBe("default");
+      // After approval, should switch back to full-access mode
+      expect(process.permissionMode).toBe("bypassPermissions");
     });
 
     it("handleToolApproval prompts user for AskUserQuestion in plan mode (not auto-deny)", async () => {

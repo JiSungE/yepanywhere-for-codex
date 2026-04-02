@@ -108,9 +108,9 @@ export function FloatingActionButton() {
     draftControls.clearDraft();
     setIsExpanded(false);
 
-    // Navigate to new session page
+    // Navigate to new thread page
     navigate(
-      `${basePath}/new-session?projectId=${encodeURIComponent(targetProjectId)}`,
+      `${basePath}/new-thread?projectId=${encodeURIComponent(targetProjectId)}`,
     );
   }, [message, projectIdFromUrl, navigate, draftControls, basePath, projects]);
 
@@ -165,9 +165,12 @@ export function FloatingActionButton() {
     ? message + (message.trimEnd() ? " " : "") + interimTranscript
     : message;
 
-  // Hide (but don't unmount) when not visible or on new-session page
+  // Hide (but don't unmount) when not visible or on new-thread/new-session page
   // This preserves expanded state and draft across navigation
-  const isHidden = !fabVisibility || location.pathname.endsWith("/new-session");
+  const isHidden =
+    !fabVisibility ||
+    location.pathname.endsWith("/new-thread") ||
+    location.pathname.endsWith("/new-session");
 
   const { right, bottom, maxWidth } = fabVisibility ?? {
     right: 24,

@@ -1873,6 +1873,26 @@ a.sidebar-nav-item {
   background: var(--primary-color);
 }
 
+.mode-dot.reasoning-low,
+.mode-option-dot.reasoning-low {
+  background: #5fa8d3;
+}
+
+.mode-dot.reasoning-medium,
+.mode-option-dot.reasoning-medium {
+  background: #58b368;
+}
+
+.mode-dot.reasoning-high,
+.mode-option-dot.reasoning-high {
+  background: #f59e0b;
+}
+
+.mode-dot.reasoning-xhigh,
+.mode-option-dot.reasoning-xhigh {
+  background: #ef4444;
+}
+
 .mode-button-held {
   border-color: var(--primary-color);
 }
@@ -1942,7 +1962,7 @@ a.sidebar-nav-item {
   transition: background 0.15s ease;
 }
 
-.mode-selector-option:hover {
+.mode-selector-option:hover:not(:disabled) {
   background: var(--bg-hover);
 }
 
@@ -1950,8 +1970,20 @@ a.sidebar-nav-item {
   background: rgba(217, 119, 87, 0.08);
 }
 
-.mode-selector-label {
+.mode-selector-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.mode-selector-content {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mode-selector-label {
   font-size: var(--font-size-base);
   color: var(--text-primary);
 }
@@ -1965,8 +1997,6 @@ a.sidebar-nav-item {
 .mode-selector-description {
   font-size: var(--font-size-xs);
   color: var(--text-muted);
-  margin-left: auto;
-  margin-right: var(--space-2);
 }
 
 .mode-selector-divider {
@@ -2224,11 +2254,24 @@ a.sidebar-nav-item {
   justify-content: center;
 }
 
-/* Thinking toggle button */
-.thinking-toggle-button {
+/* Composer reasoning controls */
+.reasoning-control {
+  position: relative;
   display: flex;
   align-items: center;
+  gap: var(--space-1);
+}
+
+.reasoning-control-menu {
+  position: relative;
+}
+
+.reasoning-trigger,
+.fast-mode-button {
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
+  gap: var(--space-1);
   padding: var(--space-1);
   background: transparent;
   border: 1px solid var(--border-color);
@@ -2238,31 +2281,97 @@ a.sidebar-nav-item {
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 
-.thinking-toggle-button:hover {
+.reasoning-trigger:hover,
+.fast-mode-button:hover {
   background: var(--bg-hover);
   border-color: var(--border-input);
 }
 
-/* Auto mode: muted amber */
-.thinking-toggle-button.active.auto {
-  background: rgba(180, 140, 60, 0.12);
-  border-color: rgba(180, 140, 60, 0.5);
-  color: rgb(180, 140, 60);
+.reasoning-trigger:disabled,
+.fast-mode-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
-.thinking-toggle-button.active.auto:hover {
-  background: rgba(180, 140, 60, 0.2);
+.reasoning-trigger.open {
+  border-color: var(--border-input);
+  color: var(--text-primary);
 }
 
-/* On mode: blue */
-.thinking-toggle-button.active.on {
+.reasoning-trigger-label {
+  white-space: nowrap;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
+.reasoning-trigger-caret {
+  font-size: 11px;
+}
+
+.reasoning-popover {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  min-width: 180px;
+  padding: var(--space-2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: 30;
+}
+
+.reasoning-popover-label {
+  margin-bottom: var(--space-2);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.reasoning-options {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.reasoning-option {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  padding: var(--space-2);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.reasoning-option:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-input);
+}
+
+.reasoning-option.active {
+  background: color-mix(in srgb, var(--app-yep-green) 10%, transparent);
+  border-color: color-mix(in srgb, var(--app-yep-green) 45%, var(--border-color));
+}
+
+.reasoning-option:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.reasoning-control-hint {
+  margin-top: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.fast-mode-button.active {
   background: rgba(59, 130, 246, 0.15);
   border-color: rgb(59, 130, 246);
   color: rgb(59, 130, 246);
-}
-
-.thinking-toggle-button.active.on:hover {
-  background: rgba(59, 130, 246, 0.25);
 }
 
 /* Voice input button */

@@ -14,10 +14,8 @@ import type { SessionIndexService } from "../indexes/index.js";
 import type { SessionMetadataService } from "../metadata/SessionMetadataService.js";
 import type { NotificationService } from "../notifications/index.js";
 import type { CodexSessionScanner } from "../projects/codex-scanner.js";
-import type { GeminiSessionScanner } from "../projects/gemini-scanner.js";
 import type { ProjectScanner } from "../projects/scanner.js";
 import type { CodexSessionReader } from "../sessions/codex-reader.js";
-import type { GeminiSessionReader } from "../sessions/gemini-reader.js";
 import { listSessionsAcrossProviders } from "../sessions/provider-resolution.js";
 import type { ISessionReader } from "../sessions/types.js";
 import type { ExternalSessionTracker } from "../supervisor/ExternalSessionTracker.js";
@@ -30,7 +28,6 @@ import type {
   SessionSummary,
 } from "../supervisor/types.js";
 import type { BusEvent, EventBus } from "../watcher/index.js";
-import { buildProviderProjectCatalog } from "./provider-catalog.js";
 
 export interface GlobalSessionsDeps {
   scanner: ProjectScanner;
@@ -40,18 +37,9 @@ export interface GlobalSessionsDeps {
   notificationService?: NotificationService;
   sessionIndexService?: SessionIndexService;
   sessionMetadataService?: SessionMetadataService;
-  /** Codex scanner for checking if a project has Codex sessions */
   codexScanner?: CodexSessionScanner;
-  /** Codex sessions directory (defaults to ~/.codex/sessions) */
   codexSessionsDir?: string;
-  /** Optional shared Codex reader factory for cross-provider session lookups */
   codexReaderFactory?: (projectPath: string) => CodexSessionReader;
-  /** Gemini scanner for checking if a project has Gemini sessions */
-  geminiScanner?: GeminiSessionScanner;
-  /** Gemini sessions directory (defaults to ~/.gemini/tmp) */
-  geminiSessionsDir?: string;
-  /** Optional shared Gemini reader factory for cross-provider session lookups */
-  geminiReaderFactory?: (projectPath: string) => GeminiSessionReader;
   /** Event bus for cache invalidation */
   eventBus?: EventBus;
 }
@@ -159,33 +147,22 @@ export function createGlobalSessionsRoutes(deps: GlobalSessionsDeps): Hono {
 
   const listSessionsForProject = async (
     project: Project,
-    providerCatalog: Awaited<ReturnType<typeof buildProviderProjectCatalog>>,
   ): Promise<SessionSummary[]> => {
     return listSessionsAcrossProviders(
       project,
       {
         readerFactory: deps.readerFactory,
         sessionIndexService: deps.sessionIndexService,
-        codexSessionsDir: deps.codexSessionsDir,
         codexReaderFactory: deps.codexReaderFactory,
-        geminiSessionsDir: deps.geminiSessionsDir,
-        geminiReaderFactory: deps.geminiReaderFactory,
-        geminiHashToCwd: providerCatalog.geminiHashToCwd,
       },
-      providerCatalog,
     );
   };
 
   const computeGlobalStats = async (): Promise<GlobalSessionStats> => {
     const projects = await deps.scanner.listProjects();
     const stats: GlobalSessionStats = createEmptyStats();
-    const providerCatalog = await buildProviderProjectCatalog({
-      codexScanner: deps.codexScanner,
-      geminiScanner: deps.geminiScanner,
-    });
-
     for (const project of projects) {
-      const sessions = await listSessionsForProject(project, providerCatalog);
+      const sessions = await listSessionsForProject(project);
       for (const session of sessions) {
         const metadata = deps.sessionMetadataService?.getMetadata(session.id);
         const isArchived = metadata?.isArchived ?? session.isArchived ?? false;
@@ -287,13 +264,8 @@ export function createGlobalSessionsRoutes(deps: GlobalSessionsDeps): Hono {
 
     // Collect all sessions with enriched data
     const allSessions: GlobalSessionItem[] = [];
-    const providerCatalog = await buildProviderProjectCatalog({
-      codexScanner: deps.codexScanner,
-      geminiScanner: deps.geminiScanner,
-    });
-
     for (const project of projects) {
-      const sessions = await listSessionsForProject(project, providerCatalog);
+      const sessions = await listSessionsForProject(project);
 
       // Enrich each session
       for (const session of sessions) {

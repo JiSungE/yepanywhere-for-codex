@@ -1,4 +1,5 @@
 import {
+  DEFAULT_PERMISSION_MODE,
   type MarkdownAugment,
   type ProviderName,
   getModelContextWindow,
@@ -6,6 +7,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { getMessageId } from "../lib/mergeMessages";
+import { normalizeVisiblePermissionMode } from "../lib/permissionMode";
 import { findPendingTasks } from "../lib/pendingTasks";
 import { extractSessionIdFromFileEvent } from "../lib/sessionFile";
 import type {
@@ -32,6 +34,10 @@ import {
   type StreamingMarkdownCallbacks,
   useStreamingContent,
 } from "./useStreamingContent";
+import {
+  getNextExpectedModeVersion,
+  shouldApplyServerModeVersion,
+} from "./modeSync";
 
 export type ProcessState = "idle" | "in-turn" | "waiting-input" | "hold";
 
@@ -136,8 +142,12 @@ export function useSession(
   >({});
 
   // Permission mode state: localMode is UI-selected, serverMode is confirmed by server
-  const [localMode, setLocalMode] = useState<PermissionMode>("default");
-  const [serverMode, setServerMode] = useState<PermissionMode>("default");
+  const [localMode, setLocalMode] = useState<PermissionMode>(
+    normalizeVisiblePermissionMode(DEFAULT_PERMISSION_MODE),
+  );
+  const [serverMode, setServerMode] = useState<PermissionMode>(
+    normalizeVisiblePermissionMode(DEFAULT_PERMISSION_MODE),
+  );
   const [modeVersion, setModeVersion] = useState<number>(0);
   // Track whether we've already processed a stream "connected" event in this mount.
   // For Codex providers, the first connected-event catch-up fetch can duplicate
@@ -156,20 +166,38 @@ export function useSession(
   const [sessionTools, setSessionTools] = useState<string[]>([]);
   // MCP servers available for this session (from init message)
   const [mcpServers, setMcpServers] = useState<string[]>([]);
-  const lastKnownModeVersionRef = useRef<number>(0);
+  const lastKnownModeVersionRef = useRef<number>(-1);
+  const pendingModeVersionRef = useRef<number | null>(null);
 
-  // Apply server mode update only if version is >= our last known version
-  // This syncs both local and server mode to the confirmed value
-  const applyServerModeUpdate = useCallback(
+  const commitServerModeUpdate = useCallback(
     (mode: PermissionMode, version: number) => {
-      if (version >= lastKnownModeVersionRef.current) {
-        lastKnownModeVersionRef.current = version;
-        setServerMode(mode);
-        setLocalMode(mode); // Sync local to server-confirmed mode
-        setModeVersion(version);
-      }
+      const normalizedMode = normalizeVisiblePermissionMode(mode);
+      lastKnownModeVersionRef.current = version;
+      pendingModeVersionRef.current = null;
+      setServerMode(normalizedMode);
+      setLocalMode(normalizedMode);
+      setModeVersion(version);
     },
     [],
+  );
+
+  // Apply server mode update only when it is newer than our last confirmed
+  // state and not older than an in-flight local mode change.
+  const applyServerModeUpdate = useCallback(
+    (mode: PermissionMode, version: number) => {
+      if (
+        shouldApplyServerModeVersion(
+          {
+            lastKnownVersion: lastKnownModeVersionRef.current,
+            pendingVersion: pendingModeVersionRef.current,
+          },
+          version,
+        )
+      ) {
+        commitServerModeUpdate(mode, version);
+      }
+    },
+    [commitServerModeUpdate],
   );
 
   // Handle initial load completion from useSessionMessages
@@ -250,25 +278,38 @@ export function useSession(
   // Update local mode (UI selection) and sync to server if process is active
   const setPermissionMode = useCallback(
     async (mode: PermissionMode) => {
-      setLocalMode(mode);
+      const normalizedMode = normalizeVisiblePermissionMode(mode);
+      setLocalMode(normalizedMode);
 
       // If there's an active process, immediately sync to server
       if (status.owner === "self" || status.owner === "external") {
+        const expectedVersion = getNextExpectedModeVersion(
+          lastKnownModeVersionRef.current,
+        );
+        pendingModeVersionRef.current = expectedVersion;
         try {
-          const result = await api.setPermissionMode(sessionId, mode);
-          // Update server-confirmed mode
-          if (result.modeVersion >= lastKnownModeVersionRef.current) {
-            lastKnownModeVersionRef.current = result.modeVersion;
-            setServerMode(result.permissionMode);
-            setModeVersion(result.modeVersion);
+          const result = await api.setPermissionMode(sessionId, normalizedMode);
+          if (
+            shouldApplyServerModeVersion(
+              {
+                lastKnownVersion: lastKnownModeVersionRef.current,
+                pendingVersion: pendingModeVersionRef.current,
+              },
+              result.modeVersion,
+            )
+          ) {
+            commitServerModeUpdate(result.permissionMode, result.modeVersion);
           }
         } catch (err) {
+          if (pendingModeVersionRef.current === expectedVersion) {
+            pendingModeVersionRef.current = null;
+          }
           // If API fails (e.g., no active process), mode will be sent on next message
           console.warn("Failed to sync permission mode:", err);
         }
       }
     },
-    [sessionId, status.owner],
+    [commitServerModeUpdate, sessionId, status.owner],
   );
 
   // Set hold state (soft pause) for the session

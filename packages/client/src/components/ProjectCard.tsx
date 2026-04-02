@@ -46,13 +46,13 @@ export function ProjectCard({
   const handleNewSession = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    navigate(`${basePath}/new-session?projectId=${project.id}`);
+    navigate(`${basePath}/new-thread?projectId=${project.id}`);
   };
 
   return (
     <li className="project-card">
       <Link
-        to={`${basePath}/sessions?project=${project.id}`}
+        to={`${basePath}/projects/${project.id}`}
         className="project-card__link"
       >
         <div className="project-card__header">

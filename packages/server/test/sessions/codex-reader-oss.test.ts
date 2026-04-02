@@ -285,4 +285,96 @@ describe("CodexSessionReader - OSS Support", () => {
     );
     expect(summary?.originator).toBe("yep-anywhere");
   });
+
+  it("maps spawn_agent tool calls to Codex subagent sessions", async () => {
+    const parentSessionId = "parent-session";
+    const agentId = "agent-session";
+    const toolUseId = "call_spawn_1";
+    const now = new Date().toISOString();
+
+    await writeFile(
+      join(testDir, `${parentSessionId}.jsonl`),
+      `${[
+        JSON.stringify({
+          type: "session_meta",
+          timestamp: now,
+          payload: {
+            id: parentSessionId,
+            cwd: "/test/project",
+            timestamp: now,
+            model_provider: "openai",
+          },
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          timestamp: now,
+          payload: {
+            type: "user_message",
+            message: "delegate work",
+          },
+        }),
+        JSON.stringify({
+          type: "response_item",
+          timestamp: now,
+          payload: {
+            type: "function_call",
+            name: "spawn_agent",
+            arguments: '{"message":"delegate work"}',
+            call_id: toolUseId,
+          },
+        }),
+        JSON.stringify({
+          type: "response_item",
+          timestamp: now,
+          payload: {
+            type: "function_call_output",
+            call_id: toolUseId,
+            output: JSON.stringify({ agent_id: agentId, nickname: "Scout" }),
+          },
+        }),
+      ].join("\n")}\n`,
+    );
+
+    await writeFile(
+      join(testDir, `${agentId}.jsonl`),
+      `${[
+        JSON.stringify({
+          type: "session_meta",
+          timestamp: now,
+          payload: {
+            id: agentId,
+            forked_from_id: parentSessionId,
+            cwd: "/test/project",
+            timestamp: now,
+            model_provider: "openai",
+            source: {
+              subagent: {
+                thread_spawn: {
+                  parent_thread_id: parentSessionId,
+                  depth: 1,
+                },
+              },
+            },
+          },
+        }),
+        JSON.stringify({
+          type: "response_item",
+          timestamp: now,
+          payload: {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "subagent reply" }],
+          },
+        }),
+      ].join("\n")}\n`,
+    );
+
+    const mappings = await reader.getAgentMappings();
+    expect(mappings).toContainEqual({ toolUseId, agentId });
+
+    const agentSession = await reader.getAgentSession(agentId);
+    expect(agentSession?.status).toBe("running");
+    expect(agentSession?.messages[0]?.isSubagent).toBe(true);
+    expect(agentSession?.messages[0]?.type).toBe("assistant");
+  });
 });

@@ -113,7 +113,7 @@ function ProcessCard({ process, isTerminated = false }: ProcessCardProps) {
   const { t } = useI18n();
   return (
     <Link
-      to={`/projects/${process.projectId}/sessions/${process.sessionId}`}
+      to={`/projects/${process.projectId}/threads/${process.sessionId}`}
       className={`agent-card ${isTerminated ? "agent-card-terminated" : ""}`}
     >
       <div className="agent-card-header">

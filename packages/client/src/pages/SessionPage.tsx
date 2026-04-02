@@ -25,7 +25,11 @@ import { useDeveloperMode } from "../hooks/useDeveloperMode";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import type { DraftControls } from "../hooks/useDraftPersistence";
 import { useEngagementTracking } from "../hooks/useEngagementTracking";
-import { getModelSetting, getThinkingSetting } from "../hooks/useModelSettings";
+import {
+  getFastModeSetting,
+  getModelSetting,
+  getReasoningEffortSetting,
+} from "../hooks/useModelSettings";
 import { useProject } from "../hooks/useProjects";
 import { useProviders } from "../hooks/useProviders";
 import { recordSessionVisit } from "../hooks/useRecentSessions";
@@ -209,14 +213,31 @@ function SessionPageContent({
   // Get provider capabilities based on session's provider
   const { providers } = useProviders();
   const currentProviderInfo = useMemo(() => {
-    if (!session?.provider) return null;
-    return providers.find((p) => p.name === session.provider) ?? null;
-  }, [providers, session?.provider]);
+    if (!effectiveProvider) return null;
+    return providers.find((p) => p.name === effectiveProvider) ?? null;
+  }, [effectiveProvider, providers]);
   // Default to true for backwards compatibility (except slash commands)
   const supportsPermissionMode =
     currentProviderInfo?.supportsPermissionMode ?? true;
-  const supportsThinkingToggle =
-    currentProviderInfo?.supportsThinkingToggle ?? true;
+  const supportsReasoningControl =
+    currentProviderInfo?.supportsReasoningControl ??
+    currentProviderInfo?.supportsThinkingToggle ??
+    true;
+  const currentModelInfo = useMemo(() => {
+    if (!effectiveModel || !currentProviderInfo?.models) {
+      return null;
+    }
+    return (
+      currentProviderInfo.models.find((model) => model.id === effectiveModel) ??
+      null
+    );
+  }, [currentProviderInfo?.models, effectiveModel]);
+  const reasoningEfforts =
+    currentModelInfo?.reasoningEfforts ??
+    (supportsReasoningControl ? ["low", "medium", "high"] : []);
+  const supportsFastMode =
+    currentModelInfo?.supportsFastMode ??
+    (currentProviderInfo?.supportsFastMode ?? false);
   const supportsSlashCommands =
     currentProviderInfo?.supportsSlashCommands ?? false;
 
@@ -266,7 +287,7 @@ function SessionPageContent({
     if (actualSessionId && actualSessionId !== sessionId) {
       // Use replace to avoid creating a history entry for the temp ID
       navigate(
-        `${basePath}/projects/${projectId}/sessions/${actualSessionId}`,
+        `${basePath}/projects/${projectId}/threads/${actualSessionId}`,
         {
           replace: true,
           state: location.state, // Preserve initial state for seamless transition
@@ -363,7 +384,8 @@ function SessionPageContent({
         // Use session's existing model if available (important for non-Claude providers),
         // otherwise fall back to user's model preference for new Claude sessions
         const model = session?.model ?? getModelSetting();
-        const thinking = getThinkingSetting();
+        const reasoningEffort = getReasoningEffortSetting();
+        const fastMode = getFastModeSetting();
         // Use effectiveProvider to ensure correct provider even if session data hasn't loaded
         // effectiveProvider = session?.provider ?? initialProvider (from navigation state)
         const result = await api.resumeSession(
@@ -373,7 +395,8 @@ function SessionPageContent({
           {
             mode: permissionMode,
             model,
-            thinking,
+            reasoningEffort,
+            fastMode,
             provider: effectiveProvider,
             executor: session?.executor,
           },
@@ -384,14 +407,17 @@ function SessionPageContent({
         setStatus({ owner: "self", processId: result.processId });
       } else {
         // Queue to existing process with current permission mode and thinking setting
-        const thinking = getThinkingSetting();
+        const reasoningEffort = getReasoningEffortSetting();
+        const fastMode = getFastModeSetting();
         const result = await api.queueMessage(
           sessionId,
           text,
           permissionMode,
           currentAttachments.length > 0 ? currentAttachments : undefined,
           tempId,
-          thinking,
+          undefined,
+          reasoningEffort,
+          fastMode,
         );
         // If process was restarted due to thinking mode change, reconnect stream
         if (result.restarted && result.processId) {
@@ -412,7 +438,8 @@ function SessionPageContent({
       if (is404) {
         try {
           const model = session?.model ?? getModelSetting();
-          const thinking = getThinkingSetting();
+          const reasoningEffort = getReasoningEffortSetting();
+          const fastMode = getFastModeSetting();
           const result = await api.resumeSession(
             projectId,
             sessionId,
@@ -420,7 +447,8 @@ function SessionPageContent({
             {
               mode: permissionMode,
               model,
-              thinking,
+              reasoningEffort,
+              fastMode,
               provider: effectiveProvider,
               executor: session?.executor,
             },
@@ -470,14 +498,17 @@ function SessionPageContent({
     }
 
     try {
-      const thinking = getThinkingSetting();
+      const reasoningEffort = getReasoningEffortSetting();
+      const fastMode = getFastModeSetting();
       await api.queueMessage(
         sessionId,
         text,
         permissionMode,
         currentAttachments.length > 0 ? currentAttachments : undefined,
         tempId,
-        thinking,
+        undefined,
+        reasoningEffort,
+        fastMode,
         true, // deferred
       );
       removePendingMessage(tempId);
@@ -541,14 +572,14 @@ function SessionPageContent({
   const handleApproveAcceptEdits = useCallback(async () => {
     if (pendingInputRequest) {
       try {
-        // Approve and switch to acceptEdits mode
+        // Approve and switch to full-access mode
         await api.respondToInput(
           sessionId,
           pendingInputRequest.id,
           "approve_accept_edits",
         );
         // Update local permission mode
-        setPermissionMode("acceptEdits");
+        setPermissionMode("bypassPermissions");
       } catch (err) {
         const status = (err as { status?: number }).status;
         const msg = status ? `Error ${status}` : t("sessionApproveFailed");
@@ -556,6 +587,38 @@ function SessionPageContent({
       }
     }
   }, [sessionId, pendingInputRequest, setPermissionMode, showToast, t]);
+
+  const handleApproveForSession = useCallback(async () => {
+    if (pendingInputRequest) {
+      try {
+        await api.respondToInput(
+          sessionId,
+          pendingInputRequest.id,
+          "approve_session",
+        );
+      } catch (err) {
+        const status = (err as { status?: number }).status;
+        const msg = status ? `Error ${status}` : t("sessionApproveFailed");
+        showToast(msg, "error");
+      }
+    }
+  }, [sessionId, pendingInputRequest, showToast, t]);
+
+  const handleApprovePolicyAmendment = useCallback(async () => {
+    if (pendingInputRequest) {
+      try {
+        await api.respondToInput(
+          sessionId,
+          pendingInputRequest.id,
+          "approve_policy_amendment",
+        );
+      } catch (err) {
+        const status = (err as { status?: number }).status;
+        const msg = status ? `Error ${status}` : t("sessionApproveFailed");
+        showToast(msg, "error");
+      }
+    }
+  }, [sessionId, pendingInputRequest, showToast, t]);
 
   const handleDeny = useCallback(async () => {
     if (pendingInputRequest) {
@@ -926,7 +989,7 @@ function SessionPageContent({
               {/* Project breadcrumb */}
               {project?.name && (
                 <Link
-                  to={`${basePath}/sessions?project=${projectId}`}
+                  to={`${basePath}/projects/${projectId}`}
                   className="project-breadcrumb"
                   title={project.name}
                 >
@@ -1022,7 +1085,7 @@ function SessionPageContent({
                     onRename={handleStartEditingTitle}
                     onClone={(newSessionId) => {
                       navigate(
-                        `${basePath}/projects/${projectId}/sessions/${newSessionId}`,
+                        `${basePath}/projects/${projectId}/threads/${newSessionId}`,
                       );
                     }}
                     onTerminate={handleTerminate}
@@ -1166,6 +1229,8 @@ function SessionPageContent({
                     onApprove={handleApprove}
                     onDeny={handleDeny}
                     onApproveAcceptEdits={handleApproveAcceptEdits}
+                    onApproveForSession={handleApproveForSession}
+                    onApprovePolicyAmendment={handleApprovePolicyAmendment}
                     onDenyWithFeedback={handleDenyWithFeedback}
                     collapsed={approvalCollapsed}
                     onCollapsedChange={setApprovalCollapsed}
@@ -1176,7 +1241,9 @@ function SessionPageContent({
                     isHeld={holdModeEnabled ? isHeld : undefined}
                     onHoldChange={holdModeEnabled ? setHold : undefined}
                     supportsPermissionMode={supportsPermissionMode}
-                    supportsThinkingToggle={supportsThinkingToggle}
+                    supportsReasoningControl={supportsReasoningControl}
+                    reasoningEfforts={reasoningEfforts}
+                    supportsFastMode={supportsFastMode}
                     contextUsage={session?.contextUsage}
                     isRunning={status.owner === "self"}
                     isThinking={processState === "in-turn"}
@@ -1218,7 +1285,9 @@ function SessionPageContent({
                 isHeld={holdModeEnabled ? isHeld : undefined}
                 onHoldChange={holdModeEnabled ? setHold : undefined}
                 supportsPermissionMode={supportsPermissionMode}
-                supportsThinkingToggle={supportsThinkingToggle}
+                supportsReasoningControl={supportsReasoningControl}
+                reasoningEfforts={reasoningEfforts}
+                supportsFastMode={supportsFastMode}
                 isRunning={status.owner === "self"}
                 isThinking={processState === "in-turn"}
                 onStop={handleAbort}

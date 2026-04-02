@@ -1,4 +1,4 @@
-// Core types for Claude SDK abstraction
+// Core runtime types for Codex session orchestration
 
 // Re-export PermissionMode from shared
 export type { PermissionMode } from "@yep-anywhere/shared";
@@ -99,11 +99,13 @@ export interface ClaudeSDK {
   startSession(options: SDKSessionOptions): AsyncIterableIterator<SDKMessage>;
 }
 
-// New interface for real SDK with full features
+// New interface for the real runtime with full features
 import type { MessageQueue } from "./messageQueue.js";
 
 export interface ToolApprovalResult {
   behavior: "allow" | "deny";
+  scope?: "once" | "session" | "policy-amendment";
+  execPolicyAmendment?: string[];
   updatedInput?: unknown;
   message?: string;
   /**
@@ -125,16 +127,18 @@ export interface StartSessionOptions {
   initialMessage?: UserMessage;
   resumeSessionId?: string;
   permissionMode?: PermissionMode;
-  /** Model to use (e.g., "sonnet", "opus", "haiku"). undefined = use CLI default */
+  /** Model to use. undefined = use runtime default */
   model?: string;
   /** Thinking configuration (undefined = thinking disabled) */
   thinking?: import("@yep-anywhere/shared").ThinkingConfig;
   /** Effort level for response quality (undefined = SDK default) */
   effort?: import("@yep-anywhere/shared").EffortLevel;
+  /** Whether fast mode is enabled for the session */
+  fastMode?: boolean;
   onToolApproval?: CanUseTool;
   /** SSH host for remote execution (undefined = local) */
   executor?: string;
-  /** Environment variables to set on remote (for testing: CLAUDE_SESSIONS_DIR) */
+  /** Environment variables to set on remote (for testing: CODEX_* overrides) */
   remoteEnv?: Record<string, string>;
   /** Global instructions to append to system prompt (from server settings) */
   globalInstructions?: string;

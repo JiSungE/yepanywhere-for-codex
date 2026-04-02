@@ -13,7 +13,7 @@ import type * as http from "node:http";
 import type { UrlProjectId } from "@yep-anywhere/shared";
 import type { SDKMessage } from "../sdk/types.js";
 import { normalizeSession } from "../sessions/normalization.js";
-import type { ClaudeSessionReader } from "../sessions/reader.js";
+import type { ISessionReader } from "../sessions/types.js";
 import type { Process } from "../supervisor/Process.js";
 import type {
   QueueFullResponse,
@@ -29,10 +29,8 @@ import type { Message } from "../supervisor/types.js";
 export interface DebugContext {
   supervisor: Supervisor;
   /** Get a session reader for a given project path */
-  getSessionReader: (
-    projectPath: string,
-  ) => Promise<ClaudeSessionReader | null>;
-  /** Claude sessions directory (for finding JSONL files) */
+  getSessionReader: (projectPath: string) => Promise<ISessionReader | null>;
+  /** Codex sessions directory (for finding JSONL files) */
   claudeSessionsDir: string;
 }
 

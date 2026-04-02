@@ -10,6 +10,7 @@ import type {
   PendingInputType,
   ProviderInfo,
   ProviderName,
+  ReasoningEffortLevel,
   SlashCommand,
   ThinkingOption,
   UploadedFile,
@@ -119,6 +120,8 @@ export interface SessionOptions {
   mode?: PermissionMode;
   /** Model ID (e.g., "sonnet", "opus", "qwen2.5-coder:0.5b") */
   model?: string;
+  reasoningEffort?: ReasoningEffortLevel;
+  fastMode?: boolean;
   thinking?: ThinkingOption;
   provider?: ProviderName;
   /** SSH host alias for remote execution (undefined = local) */
@@ -361,8 +364,9 @@ export const api = {
       method: "POST",
     }),
 
-  // Provider API
-  getProviders: () => fetchJSON<{ providers: ProviderInfo[] }>("/providers"),
+  // Codex runtime API
+  getCodexRuntimes: () =>
+    fetchJSON<{ runtimes: ProviderInfo[] }>("/codex/runtimes"),
 
   getProjects: () => fetchJSON<{ projects: Project[] }>("/projects"),
 
@@ -450,6 +454,8 @@ export const api = {
         message,
         mode: options?.mode,
         model: options?.model,
+        reasoningEffort: options?.reasoningEffort,
+        fastMode: options?.fastMode,
         thinking: options?.thinking,
         provider: options?.provider,
         executor: options?.executor,
@@ -472,6 +478,8 @@ export const api = {
       body: JSON.stringify({
         mode: options?.mode,
         model: options?.model,
+        reasoningEffort: options?.reasoningEffort,
+        fastMode: options?.fastMode,
         thinking: options?.thinking,
         provider: options?.provider,
         executor: options?.executor,
@@ -496,6 +504,8 @@ export const api = {
         message,
         mode: options?.mode,
         model: options?.model,
+        reasoningEffort: options?.reasoningEffort,
+        fastMode: options?.fastMode,
         thinking: options?.thinking,
         provider: options?.provider,
         executor: options?.executor,
@@ -511,6 +521,8 @@ export const api = {
     attachments?: UploadedFile[],
     tempId?: string,
     thinking?: ThinkingOption,
+    reasoningEffort?: ReasoningEffortLevel,
+    fastMode?: boolean,
     deferred?: boolean,
   ) =>
     fetchJSON<{
@@ -526,6 +538,8 @@ export const api = {
         attachments,
         tempId,
         thinking,
+        reasoningEffort,
+        fastMode,
         deferred,
       }),
     }),
@@ -561,7 +575,12 @@ export const api = {
   respondToInput: (
     sessionId: string,
     requestId: string,
-    response: "approve" | "approve_accept_edits" | "deny",
+    response:
+      | "approve"
+      | "approve_accept_edits"
+      | "approve_session"
+      | "approve_policy_amendment"
+      | "deny",
     answers?: Record<string, string>,
     feedback?: string,
   ) =>
@@ -601,6 +620,7 @@ export const api = {
         provider: string;
         thinking?: { type: string };
         effort?: string;
+        fastMode?: boolean;
         model?: string;
       } | null;
     }>(`/sessions/${sessionId}/process`),

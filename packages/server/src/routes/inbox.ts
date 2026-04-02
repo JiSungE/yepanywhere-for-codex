@@ -16,10 +16,8 @@ import { getLogger } from "../logging/logger.js";
 import type { SessionMetadataService } from "../metadata/SessionMetadataService.js";
 import type { NotificationService } from "../notifications/index.js";
 import type { CodexSessionScanner } from "../projects/codex-scanner.js";
-import type { GeminiSessionScanner } from "../projects/gemini-scanner.js";
 import type { ProjectScanner } from "../projects/scanner.js";
 import type { CodexSessionReader } from "../sessions/codex-reader.js";
-import type { GeminiSessionReader } from "../sessions/gemini-reader.js";
 import { listSessionsAcrossProviders } from "../sessions/provider-resolution.js";
 import type { ISessionReader } from "../sessions/types.js";
 import type { Supervisor } from "../supervisor/Supervisor.js";
@@ -29,7 +27,6 @@ import type {
   Project,
   SessionSummary,
 } from "../supervisor/types.js";
-import { buildProviderProjectCatalog } from "./provider-catalog.js";
 
 export interface InboxDeps {
   scanner: ProjectScanner;
@@ -41,9 +38,6 @@ export interface InboxDeps {
   codexScanner?: CodexSessionScanner;
   codexSessionsDir?: string;
   codexReaderFactory?: (projectPath: string) => CodexSessionReader;
-  geminiScanner?: GeminiSessionScanner;
-  geminiSessionsDir?: string;
-  geminiReaderFactory?: (projectPath: string) => GeminiSessionReader;
 }
 
 export interface InboxItem {
@@ -99,10 +93,6 @@ export function createInboxRoutes(deps: InboxDeps): Hono {
     }> = [];
 
     const logger = getLogger();
-    const providerCatalog = await buildProviderProjectCatalog({
-      codexScanner: deps.codexScanner,
-      geminiScanner: deps.geminiScanner,
-    });
 
     // Fetch sessions from all projects in parallel
     const projectSessionResults = await Promise.all(
@@ -113,13 +103,8 @@ export function createInboxRoutes(deps: InboxDeps): Hono {
             {
               readerFactory: deps.readerFactory,
               sessionIndexService: deps.sessionIndexService,
-              codexSessionsDir: deps.codexSessionsDir,
               codexReaderFactory: deps.codexReaderFactory,
-              geminiSessionsDir: deps.geminiSessionsDir,
-              geminiReaderFactory: deps.geminiReaderFactory,
-              geminiHashToCwd: providerCatalog.geminiHashToCwd,
             },
-            providerCatalog,
           );
           return { project, sessions };
         } catch (err) {

@@ -14,7 +14,7 @@
   <a href="https://yepanywhere.com">yepanywhere.com</a>
 </p>
 
-A better remote interface for Claude Code and Codex. Self-hosted, no cloud accounts. Supervise your agents from your phone while they run on your dev machines.
+A better remote interface for Codex. Self-hosted, no cloud accounts. Supervise your agents from your phone while they run on your dev machines.
 
 ## Features
 
@@ -32,12 +32,12 @@ A better remote interface for Claude Code and Codex. Self-hosted, no cloud accou
 
 No database, no cloud, no accounts. 100% open source (MIT).
 
-## Supported Providers
+## Supported Runtimes
 
-| Provider | Diffs | Approvals | Streaming | Notes |
-|----------|-------|-----------|-----------|-------|
-| Claude Code | Full | Yes | Yes | Primary provider, full feature support |
-| Codex | Full | Yes | Yes | Full support including diffs and approvals |
+| Runtime | Diffs | Approvals | Streaming | Notes |
+|---------|-------|-----------|-----------|-------|
+| Codex | Full | Yes | Yes | Default OpenAI Codex runtime |
+| Codex OSS | Full | Yes | Yes | Local runtime via `codex --oss` when installed |
 
 ## Screenshots
 
@@ -62,7 +62,7 @@ No database, no cloud, no accounts. 100% open source (MIT).
 
 ## Getting Started
 
-If you can install Claude Code or Codex, you can install this. Minimal dependencies.
+If you can install Codex, you can install this. Minimal dependencies.
 
 ```
 npm i -g yepanywhere
@@ -78,7 +78,7 @@ pnpm build
 pnpm start
 ```
 
-Open http://localhost:3400 in your browser. The app auto-detects installed CLI agents.
+Open http://localhost:3400 in your browser. The app auto-detects installed Codex runtimes.
 
 ## Remote Access
 
@@ -106,11 +106,9 @@ There are a lot of projects in this space. We track them all: **[docs/competitiv
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for build instructions, configuration options, and more.
 
-## TOS Compliance
+## Runtime Model
 
-Yep Anywhere uses the official [`@anthropic-ai/claude-agent-sdk`](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) published by Anthropic. We don't handle authentication, spoof headers, or manipulate OAuth tokens. You authenticate via your own Claude CLI — we're just a remote interface to your sessions.
-
-Read more: [How we use the SDK](https://yepanywhere.com/tos-compliance.html) | [Feb 2026 auth clarification](https://yepanywhere.com/sdk-auth-clarification.html)
+Yep Anywhere drives your own Codex installation. We do not proxy model requests through our servers and we do not handle your OpenAI auth on your behalf. The app is a remote UI and relay layer around your own Codex runtime.
 
 ## Star History
 

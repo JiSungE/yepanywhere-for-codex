@@ -364,7 +364,7 @@ export function SessionListItem({
         />
       ) : (
         <Link
-          to={`${basePath}/projects/${projectId}/sessions/${sessionId}`}
+          to={`${basePath}/projects/${projectId}/threads/${sessionId}`}
           onClick={(e) => {
             if (isSelectionMode) {
               e.preventDefault();
@@ -459,7 +459,7 @@ export function SessionListItem({
           }}
           onClone={(newSessionId) => {
             navigate(
-              `${basePath}/projects/${projectId}/sessions/${newSessionId}`,
+              `${basePath}/projects/${projectId}/threads/${newSessionId}`,
             );
           }}
           useEllipsisIcon

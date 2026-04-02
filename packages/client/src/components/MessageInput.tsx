@@ -1,4 +1,8 @@
-import type { UploadedFile } from "@yep-anywhere/shared";
+import {
+  DEFAULT_PERMISSION_MODE,
+  type ReasoningEffortLevel,
+  type UploadedFile,
+} from "@yep-anywhere/shared";
 import {
   type ClipboardEvent,
   type KeyboardEvent,
@@ -70,8 +74,12 @@ interface Props {
   uploadProgress?: UploadProgress[];
   /** Whether the provider supports permission modes (default: true) */
   supportsPermissionMode?: boolean;
-  /** Whether the provider supports thinking toggle (default: true) */
-  supportsThinkingToggle?: boolean;
+  /** Whether the provider supports reasoning controls (default: true) */
+  supportsReasoningControl?: boolean;
+  /** Reasoning levels supported by the current model */
+  reasoningEfforts?: ReasoningEffortLevel[];
+  /** Whether the current model/runtime supports fast mode */
+  supportsFastMode?: boolean;
   /** Available slash commands (without "/" prefix) */
   slashCommands?: string[];
   /** Callback for custom client-side commands (e.g., "model"). Return true if handled. */
@@ -83,7 +91,7 @@ export function MessageInput({
   onQueue,
   disabled,
   placeholder,
-  mode = "default",
+  mode = DEFAULT_PERMISSION_MODE,
   onModeChange,
   isHeld,
   onHoldChange,
@@ -101,7 +109,9 @@ export function MessageInput({
   onRemoveAttachment,
   uploadProgress = [],
   supportsPermissionMode = true,
-  supportsThinkingToggle = true,
+  supportsReasoningControl = true,
+  reasoningEfforts = ["low", "medium", "high", "xhigh"],
+  supportsFastMode = false,
   slashCommands = [],
   onCustomCommand,
 }: Props) {
@@ -426,7 +436,9 @@ export function MessageInput({
             isHeld={isHeld}
             onHoldChange={onHoldChange}
             supportsPermissionMode={supportsPermissionMode}
-            supportsThinkingToggle={supportsThinkingToggle}
+            supportsReasoningControl={supportsReasoningControl}
+            reasoningEfforts={reasoningEfforts}
+            supportsFastMode={supportsFastMode}
             canAttach={canAttach}
             attachmentCount={attachments.length}
             onAttachClick={() => fileInputRef.current?.click()}

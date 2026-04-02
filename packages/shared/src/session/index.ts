@@ -5,7 +5,6 @@ export {
 } from "./SessionView.js";
 
 export type {
-  ClaudeSessionFile,
   CodexSessionContent,
   UnifiedSession,
 } from "./UnifiedSession.js";

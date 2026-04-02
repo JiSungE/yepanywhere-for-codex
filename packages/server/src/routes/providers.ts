@@ -5,28 +5,22 @@ import type { ModelInfoService } from "../services/ModelInfoService.js";
 
 interface ProviderRouteDeps {
   modelInfoService?: ModelInfoService;
-  /** If non-empty, only these provider names are exposed. */
-  enabledProviders?: string[];
 }
 
 /**
- * Creates provider-related API routes.
+ * Creates Codex runtime-related API routes.
  *
- * GET /api/providers - Get all providers with their auth status
- * GET /api/providers/:name - Get specific provider status
+ * GET /api/codex/runtimes - Get supported Codex runtimes with auth status
  */
-export function createProvidersRoutes(deps: ProviderRouteDeps = {}): Hono {
+export function createCodexRuntimesRoutes(
+  deps: ProviderRouteDeps = {},
+): Hono {
   const routes = new Hono();
-  // GET /api/providers - Get all available providers with auth status and models
+
   routes.get("/", async (c) => {
-    let providers = getAllProviders();
-    if (deps.enabledProviders && deps.enabledProviders.length > 0) {
-      const enabled = new Set(deps.enabledProviders);
-      providers = providers.filter((p) => enabled.has(p.name));
-    }
     const providerInfos: ProviderInfo[] = [];
 
-    for (const provider of providers) {
+    for (const provider of getAllProviders()) {
       const [authStatus, models] = await Promise.all([
         provider.getAuthStatus(),
         provider.getAvailableModels(),
@@ -45,44 +39,15 @@ export function createProvidersRoutes(deps: ProviderRouteDeps = {}): Hono {
         user: authStatus.user,
         models,
         supportsPermissionMode: provider.supportsPermissionMode,
+        supportsReasoningControl: provider.supportsReasoningControl,
         supportsThinkingToggle: provider.supportsThinkingToggle,
+        supportsFastMode:
+          provider.supportsFastMode && models.some((model) => model.supportsFastMode),
         supportsSlashCommands: provider.supportsSlashCommands,
       });
     }
 
-    return c.json({ providers: providerInfos });
-  });
-
-  // GET /api/providers/:name - Get specific provider status with models
-  routes.get("/:name", async (c) => {
-    const name = c.req.param("name");
-    const providers = getAllProviders();
-    const provider = providers.find((p) => p.name === name);
-
-    if (!provider) {
-      return c.json({ error: "Provider not found" }, 404);
-    }
-
-    const [authStatus, models] = await Promise.all([
-      provider.getAuthStatus(),
-      provider.getAvailableModels(),
-    ]);
-    deps.modelInfoService?.ingestModels(provider.name as ProviderName, models);
-    const providerInfo: ProviderInfo = {
-      name: provider.name,
-      displayName: provider.displayName,
-      installed: authStatus.installed,
-      authenticated: authStatus.authenticated,
-      enabled: authStatus.enabled,
-      expiresAt: authStatus.expiresAt?.toISOString(),
-      user: authStatus.user,
-      models,
-      supportsPermissionMode: provider.supportsPermissionMode,
-      supportsThinkingToggle: provider.supportsThinkingToggle,
-      supportsSlashCommands: provider.supportsSlashCommands,
-    };
-
-    return c.json({ provider: providerInfo });
+    return c.json({ runtimes: providerInfos });
   });
 
   return routes;

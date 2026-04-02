@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 
 /**
- * Hook to fetch and cache available AI providers with their auth status.
+ * Hook to fetch and cache available Codex runtimes with their auth status.
  *
  * Returns:
  * - providers: Array of provider info objects
@@ -21,8 +21,8 @@ export function useProviders() {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.getProviders();
-      setProviders(data.providers);
+      const data = await api.getCodexRuntimes();
+      setProviders(data.runtimes);
     } catch (err) {
       setError(err instanceof Error ? err : new Error(String(err)));
     } finally {
@@ -41,7 +41,7 @@ export function useProviders() {
 }
 
 /**
- * Get the list of providers that are available (installed + authenticated/enabled).
+ * Get the list of Codex runtimes that are available (installed + authenticated/enabled).
  */
 export function getAvailableProviders(
   providers: ProviderInfo[],
@@ -50,8 +50,8 @@ export function getAvailableProviders(
 }
 
 /**
- * Get the default provider from available providers.
- * Prefers Claude if available, otherwise the first available provider.
+ * Get the default Codex runtime from available runtimes.
+ * Prefers the configured default runtime, otherwise the first available runtime.
  */
 export function getDefaultProvider(
   providers: ProviderInfo[],
@@ -59,7 +59,7 @@ export function getDefaultProvider(
   const available = getAvailableProviders(providers);
   if (available.length === 0) return null;
 
-  // Prefer default provider (Claude)
+  // Prefer the configured default runtime.
   const defaultProv = available.find((p) => p.name === DEFAULT_PROVIDER);
   if (defaultProv) return defaultProv;
 

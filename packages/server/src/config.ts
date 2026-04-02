@@ -1,6 +1,10 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import {
+  ALL_PERMISSION_MODES,
+  DEFAULT_PERMISSION_MODE,
+} from "@yep-anywhere/shared";
 import type { Level as LogLevel } from "pino";
 import { getDefaultCodexSessionsDir } from "./projects/codex-scanner.js";
 import type { PermissionMode } from "./sdk/types.js";
@@ -31,12 +35,6 @@ export function getDataDir(): string {
 export interface Config {
   /** Data directory for yep-anywhere state files (indexes, metadata, uploads, etc.) */
   dataDir: string;
-  /** Directory where Claude projects are stored */
-  claudeProjectsDir: string;
-  /** Claude sessions directory (~/.claude/projects) */
-  claudeSessionsDir: string;
-  /** Gemini sessions directory (~/.gemini/tmp) */
-  geminiSessionsDir: string;
   /** Codex sessions directory (~/.codex/sessions) */
   codexSessionsDir: string;
   /**
@@ -69,7 +67,7 @@ export interface Config {
   maintenancePort: number;
   /** File to write the actual maintenance port to after binding (for test harnesses) */
   maintenancePortFile: string | null;
-  /** Use mock SDK instead of real Claude SDK */
+  /** Use mock SDK instead of the real runtime */
   useMockSdk: boolean;
   /** Maximum concurrent workers. 0 = unlimited (default for backward compat) */
   maxWorkers: number;
@@ -99,8 +97,6 @@ export interface Config {
   logToFile: boolean;
   /** Whether to pretty-print console logs. Default: true */
   logPretty: boolean;
-  /** Enabled provider names. Empty = all providers enabled. */
-  enabledProviders: string[];
   /** Whether voice input is enabled. Default: true */
   voiceInputEnabled: boolean;
   /** Allowed directory prefixes for serving local images (e.g., ["/tmp"]). Empty = disabled. */
@@ -135,16 +131,6 @@ export function loadConfig(): Config {
   // Get data directory (supports profiles for multiple instances)
   const dataDir = getDataDir();
 
-  // Session directories can be overridden via env vars for test isolation
-  const claudeSessionsDir =
-    process.env.CLAUDE_SESSIONS_DIR ??
-    path.join(
-      process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude"),
-      "projects",
-    );
-  const geminiSessionsDir =
-    process.env.GEMINI_SESSIONS_DIR ??
-    path.join(os.homedir(), ".gemini", "tmp");
   const codexSessionsDir =
     process.env.CODEX_SESSIONS_DIR ?? getDefaultCodexSessionsDir();
   // Enable periodic rescan on macOS (fs.watch misses deep file writes)
@@ -177,9 +163,6 @@ export function loadConfig(): Config {
 
   return {
     dataDir,
-    claudeProjectsDir: process.env.CLAUDE_PROJECTS_DIR ?? claudeSessionsDir,
-    claudeSessionsDir,
-    geminiSessionsDir,
     codexSessionsDir,
     codexWatchPeriodicRescanMs,
     sessionIndexFullValidationMs,
@@ -235,12 +218,6 @@ export function loadConfig(): Config {
     ),
     logToFile: process.env.LOG_TO_FILE === "true",
     logPretty: parseBooleanOrDefault(process.env.LOG_PRETTY, true),
-    // Enabled providers (comma-separated). Empty = all providers.
-    enabledProviders: process.env.ENABLED_PROVIDERS
-      ? process.env.ENABLED_PROVIDERS.split(",")
-          .map((s) => s.trim())
-          .filter(Boolean)
-      : [],
     // Voice input (default: true, set VOICE_INPUT=false to disable)
     voiceInputEnabled: process.env.VOICE_INPUT !== "false",
     // Allowed local image paths (default: /tmp). Set ALLOWED_IMAGE_PATHS to override, empty string to disable.
@@ -316,10 +293,10 @@ function parseBooleanOrDefault(
  * Parse permission mode from string or return default.
  */
 function parsePermissionMode(value: string | undefined): PermissionMode {
-  if (value === "bypassPermissions" || value === "acceptEdits") {
-    return value;
+  if (value && ALL_PERMISSION_MODES.includes(value as PermissionMode)) {
+    return value as PermissionMode;
   }
-  return "default";
+  return DEFAULT_PERMISSION_MODE;
 }
 
 /**

@@ -65,6 +65,8 @@ export const UI_KEYS = {
 /** Base key names for server-scoped settings (installId prefix added at runtime) */
 export const SERVER_SCOPED_KEYS = {
   model: "model",
+  reasoningEffort: "reasoning-effort",
+  fastMode: "fast-mode",
   thinkingLevel: "thinking-level",
   thinkingEnabled: "thinking-enabled",
   thinkingMode: "thinking-mode",
@@ -197,6 +199,8 @@ export const SAVED_HOSTS_KEY = "yep-anywhere-saved-hosts";
 /** Old unscoped keys that need migration to server-scoped versions */
 export const LEGACY_KEYS = {
   model: "yep-anywhere-model",
+  reasoningEffort: "yep-anywhere-reasoning-effort",
+  fastMode: "yep-anywhere-fast-mode",
   thinkingLevel: "yep-anywhere-thinking-level",
   thinkingEnabled: "yep-anywhere-thinking-enabled",
   thinkingMode: "yep-anywhere-thinking-mode",
@@ -234,8 +238,11 @@ export function migrateLegacySettings(installId: string): boolean {
     scoped: keyof typeof SERVER_SCOPED_KEYS;
   }> = [
     { legacy: LEGACY_KEYS.model, scoped: "model" },
+    { legacy: LEGACY_KEYS.reasoningEffort, scoped: "reasoningEffort" },
+    { legacy: LEGACY_KEYS.fastMode, scoped: "fastMode" },
     { legacy: LEGACY_KEYS.thinkingLevel, scoped: "thinkingLevel" },
     { legacy: LEGACY_KEYS.thinkingEnabled, scoped: "thinkingEnabled" },
+    { legacy: LEGACY_KEYS.thinkingMode, scoped: "thinkingMode" },
     { legacy: LEGACY_KEYS.voiceInputEnabled, scoped: "voiceInputEnabled" },
     { legacy: LEGACY_KEYS.browserProfileId, scoped: "browserProfileId" },
     { legacy: LEGACY_KEYS.notifyInApp, scoped: "notifyInApp" },

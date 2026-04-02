@@ -5,9 +5,12 @@
  * server-initiated permission requests (command/file approval).
  */
 
-import { type ChildProcess, exec, spawn } from "node:child_process";
+import { type ChildProcess, exec, execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import type { ModelInfo } from "@yep-anywhere/shared";
+import type {
+  ModelInfo,
+  ReasoningEffortLevel,
+} from "@yep-anywhere/shared";
 import {
   isCodexCorrelationDebugEnabled,
   logCodexCorrelationDebug,
@@ -59,6 +62,7 @@ import type {
 
 const log = getLogger().child({ component: "codex-provider" });
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 function logSdkCorrelationDebug(
   sessionId: string,
@@ -100,6 +104,7 @@ function withCodexTimestamp<T extends SDKMessage>(
 }
 
 const MODEL_CACHE_TTL_MS = 60 * 60 * 1000;
+const FEATURE_CACHE_TTL_MS = 5 * 60 * 1000;
 const MODEL_LIST_TIMEOUT_MS = 8000;
 const APP_SERVER_INIT_REQUEST_ID = 1;
 const APP_SERVER_MODEL_LIST_REQUEST_ID = 2;
@@ -382,6 +387,7 @@ class CodexAppServerClient {
     private readonly command: string,
     private readonly cwd: string,
     private readonly env: NodeJS.ProcessEnv,
+    private readonly extraArgs: string[] = [],
   ) {}
 
   setServerRequestHandler(handler: AppServerRequestHandler): void {
@@ -393,13 +399,17 @@ class CodexAppServerClient {
       throw new Error("Codex app-server already connected");
     }
 
-    const child = spawn(this.command, ["app-server", "--listen", "stdio://"], {
-      cwd: this.cwd,
-      detached: process.platform !== "win32",
-      stdio: ["pipe", "pipe", "pipe"],
-      env: this.env,
-      shell: process.platform === "win32",
-    });
+    const child = spawn(
+      this.command,
+      ["app-server", "--listen", "stdio://", ...this.extraArgs],
+      {
+        cwd: this.cwd,
+        detached: process.platform !== "win32",
+        stdio: ["pipe", "pipe", "pipe"],
+        env: this.env,
+        shell: process.platform === "win32",
+      },
+    );
 
     this.process = child;
 
@@ -627,11 +637,16 @@ export class CodexProvider implements AgentProvider {
   readonly name = "codex" as const;
   readonly displayName = "Codex";
   readonly supportsPermissionMode = true;
+  readonly supportsReasoningControl = true;
   readonly supportsThinkingToggle = true;
+  readonly supportsFastMode = true;
   readonly supportsSlashCommands = false;
 
   private readonly config: CodexProviderConfig;
   private modelCache: { models: ModelInfo[]; expiresAt: number } | null = null;
+  private fastModeFeatureCache:
+    | { supported: boolean; expiresAt: number }
+    | null = null;
 
   constructor(config: CodexProviderConfig = {}) {
     this.config = config;
@@ -714,6 +729,7 @@ export class CodexProvider implements AgentProvider {
     }
 
     let models: ModelInfo[] = [];
+    const fastModeFeatureEnabled = await this.isFastModeFeatureEnabled();
     if (await this.isCodexCliInstalled()) {
       models = await this.getModelsFromAppServer();
     }
@@ -721,6 +737,8 @@ export class CodexProvider implements AgentProvider {
     if (models.length === 0) {
       models = FALLBACK_CODEX_MODELS;
     }
+
+    models = this.annotateModelCapabilities(models, fastModeFeatureEnabled);
 
     this.modelCache = {
       models,
@@ -921,6 +939,78 @@ export class CodexProvider implements AgentProvider {
       .map((entry) => entry.model);
   }
 
+  private annotateModelCapabilities(
+    models: ModelInfo[],
+    fastModeFeatureEnabled: boolean,
+  ): ModelInfo[] {
+    return models.map((model) => ({
+      ...model,
+      reasoningEfforts: this.getReasoningEffortsForModel(model.id),
+      supportsFastMode:
+        fastModeFeatureEnabled && this.isFastModeModel(model.id),
+    }));
+  }
+
+  private getReasoningEffortsForModel(
+    modelId: string,
+  ): ReasoningEffortLevel[] {
+    const normalized = modelId.toLowerCase();
+    if (
+      normalized.startsWith("gpt-5.4") ||
+      normalized.startsWith("gpt-5.2") ||
+      normalized.startsWith("gpt-5.3-codex")
+    ) {
+      return ["low", "medium", "high", "xhigh"];
+    }
+
+    if (normalized.startsWith("gpt-5.1")) {
+      return ["low", "medium", "high"];
+    }
+
+    return ["low", "medium", "high"];
+  }
+
+  private isFastModeModel(modelId: string): boolean {
+    return modelId.toLowerCase().startsWith("gpt-5.4");
+  }
+
+  private async isFastModeFeatureEnabled(): Promise<boolean> {
+    const now = Date.now();
+    if (
+      this.fastModeFeatureCache &&
+      this.fastModeFeatureCache.expiresAt > now
+    ) {
+      return this.fastModeFeatureCache.supported;
+    }
+
+    let supported = false;
+    try {
+      const codexCommand = await this.resolveCodexCommand();
+      const { stdout } = await execFileAsync(codexCommand, ["features", "list"], {
+        env: this.getCodexEnv(),
+        timeout: 5000,
+        shell: process.platform === "win32",
+      });
+      supported = stdout
+        .split("\n")
+        .map((line) => line.trim().split(/\s+/))
+        .some(
+          (parts) =>
+            parts[0] === "fast_mode" &&
+            parts[parts.length - 1] === "true",
+        );
+    } catch (error) {
+      log.debug({ error }, "Failed to discover Codex fast_mode feature");
+    }
+
+    this.fastModeFeatureCache = {
+      supported,
+      expiresAt: now + FEATURE_CACHE_TTL_MS,
+    };
+
+    return supported;
+  }
+
   private formatModelName(value: string): string {
     return value
       .trim()
@@ -942,7 +1032,7 @@ export class CodexProvider implements AgentProvider {
     thinking?: import("@yep-anywhere/shared").ThinkingConfig,
   ): "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined {
     if (thinking?.type === "disabled") {
-      return "low";
+      return "none";
     }
     if (!effort) {
       return undefined;
@@ -954,9 +1044,16 @@ export class CodexProvider implements AgentProvider {
         return "medium";
       case "high":
         return "high";
-      case "max":
+      case "xhigh":
         return "xhigh";
     }
+  }
+
+  private getAppServerArgs(fastMode: boolean | undefined): string[] {
+    if (!fastMode) {
+      return [];
+    }
+    return ["--enable", "fast_mode", "-c", 'service_tier="fast"'];
   }
 
   private mapPermissionModeToThreadPolicy(
@@ -1076,6 +1173,7 @@ export class CodexProvider implements AgentProvider {
       codexCommand,
       options.cwd,
       this.getCodexEnv(),
+      this.getAppServerArgs(options.fastMode),
     );
     setActiveClient(appServer);
 
@@ -1384,13 +1482,21 @@ export class CodexProvider implements AgentProvider {
           itemId: commandParams.itemId,
         };
         const decision: CommandExecutionApprovalDecision =
-          await this.resolveApprovalDecision(
+          await this.resolveApprovalDecision<CommandExecutionApprovalDecision>(
             options,
             "Bash",
             toolInput,
             signal,
-            "accept",
-            "decline",
+            {
+              allow: "accept",
+              allowForSession: "acceptForSession",
+              allowWithExecPolicyAmendment: (execPolicyAmendment) => ({
+                acceptWithExecpolicyAmendment: {
+                  execpolicy_amendment: execPolicyAmendment,
+                },
+              }),
+              deny: "decline",
+            },
           );
         log.info(
           {
@@ -1441,13 +1547,16 @@ export class CodexProvider implements AgentProvider {
           itemId: fileParams.itemId,
         };
         const decision: FileChangeApprovalDecision =
-          await this.resolveApprovalDecision(
+          await this.resolveApprovalDecision<FileChangeApprovalDecision>(
             options,
             "Edit",
             toolInput,
             signal,
-            "accept",
-            "decline",
+            {
+              allow: "accept",
+              allowForSession: "acceptForSession",
+              deny: "decline",
+            },
           );
         log.info(
           {
@@ -1482,8 +1591,10 @@ export class CodexProvider implements AgentProvider {
           "Bash",
           toolInput,
           signal,
-          "approved",
-          "denied",
+          {
+            allow: "approved",
+            deny: "denied",
+          },
         );
         log.info(
           {
@@ -1515,8 +1626,10 @@ export class CodexProvider implements AgentProvider {
           "Edit",
           toolInput,
           signal,
-          "approved",
-          "denied",
+          {
+            allow: "approved",
+            deny: "denied",
+          },
         );
         log.info(
           {
@@ -1533,25 +1646,22 @@ export class CodexProvider implements AgentProvider {
 
       case "item/tool/requestUserInput": {
         const requestInput = this.asToolRequestUserInputParams(request.params);
-        const questions = requestInput?.questions ?? [];
-
-        // MVP: return empty answers so request can complete without blocking.
-        const answers: ToolRequestUserInputResponse["answers"] = {};
-        for (const question of questions) {
-          answers[question.id] = { answers: [] };
-        }
-        log.warn(
+        const response = await this.resolveToolUserInputRequest(
+          options,
+          requestInput,
+          signal,
+        );
+        log.info(
           {
             method: request.method,
             requestId: request.id,
-            questionCount: questions.length,
+            questionCount: requestInput?.questions.length ?? 0,
             threadId: requestInput?.threadId ?? null,
             turnId: requestInput?.turnId ?? null,
             itemId: requestInput?.itemId ?? null,
           },
-          "Codex requested tool user input; returning empty answers in MVP",
+          "Resolved Codex tool user input request",
         );
-        const response: ToolRequestUserInputResponse = { answers };
         return response;
       }
 
@@ -1565,20 +1675,26 @@ export class CodexProvider implements AgentProvider {
     }
   }
 
-  private async resolveApprovalDecision<TDecision extends string>(
+  private async resolveApprovalDecision<TDecision>(
     options: StartSessionOptions,
     toolName: string,
     toolInput: unknown,
     signal: AbortSignal,
-    allowDecision: TDecision,
-    denyDecision: TDecision,
+    decisions: {
+      allow: TDecision;
+      allowForSession?: TDecision;
+      allowWithExecPolicyAmendment?: (
+        execPolicyAmendment: string[],
+      ) => TDecision;
+      deny: TDecision;
+    },
   ): Promise<TDecision> {
     if (!options.onToolApproval) {
       log.warn(
         { toolName },
         "No onToolApproval handler available; denying Codex approval request",
       );
-      return denyDecision;
+      return decisions.deny;
     }
 
     let result: ToolApprovalResult;
@@ -1589,7 +1705,7 @@ export class CodexProvider implements AgentProvider {
         { toolName, error },
         "onToolApproval threw; denying Codex approval request",
       );
-      return denyDecision;
+      return decisions.deny;
     }
 
     log.info(
@@ -1597,7 +1713,120 @@ export class CodexProvider implements AgentProvider {
       "Resolved tool approval callback result",
     );
 
-    return result.behavior === "allow" ? allowDecision : denyDecision;
+    if (result.behavior !== "allow") {
+      return decisions.deny;
+    }
+
+    if (
+      result.scope === "policy-amendment" &&
+      decisions.allowWithExecPolicyAmendment
+    ) {
+      const amendment =
+        result.execPolicyAmendment && result.execPolicyAmendment.length > 0
+          ? result.execPolicyAmendment
+          : this.extractExecPolicyAmendment(toolInput);
+      if (amendment && amendment.length > 0) {
+        return decisions.allowWithExecPolicyAmendment(amendment);
+      }
+    }
+
+    if (result.scope === "session" && decisions.allowForSession !== undefined) {
+      return decisions.allowForSession;
+    }
+
+    return decisions.allow;
+  }
+
+  private async resolveToolUserInputRequest(
+    options: StartSessionOptions,
+    requestInput: ToolRequestUserInputParams | null,
+    signal: AbortSignal,
+  ): Promise<ToolRequestUserInputResponse> {
+    const emptyAnswers: ToolRequestUserInputResponse["answers"] = {};
+    const questions = requestInput?.questions ?? [];
+    for (const question of questions) {
+      emptyAnswers[question.id] = { answers: [] };
+    }
+
+    if (!requestInput || !options.onToolApproval) {
+      return { answers: emptyAnswers };
+    }
+
+    let result: ToolApprovalResult;
+    try {
+      result = await options.onToolApproval(
+        "AskUserQuestion",
+        {
+          questions: requestInput.questions.map((question) => ({
+            id: question.id,
+            header: question.header,
+            question: question.question,
+            options: question.options ?? [],
+            multiSelect: false,
+            allowOther: question.isOther,
+            isSecret: question.isSecret,
+          })),
+        },
+        { signal },
+      );
+    } catch (error) {
+      log.warn(
+        {
+          error,
+          itemId: requestInput.itemId,
+          questionCount: requestInput.questions.length,
+        },
+        "Tool user input callback threw; returning empty answers",
+      );
+      return { answers: emptyAnswers };
+    }
+
+    if (result.behavior !== "allow") {
+      return { answers: emptyAnswers };
+    }
+
+    const updatedAnswers =
+      result.updatedInput &&
+      typeof result.updatedInput === "object" &&
+      "answers" in result.updatedInput &&
+      result.updatedInput.answers &&
+      typeof result.updatedInput.answers === "object"
+        ? (result.updatedInput.answers as Record<string, string>)
+        : null;
+
+    if (!updatedAnswers) {
+      return { answers: emptyAnswers };
+    }
+
+    const responseAnswers: ToolRequestUserInputResponse["answers"] = {};
+    for (const question of requestInput.questions) {
+      const answer =
+        updatedAnswers[question.id] ?? updatedAnswers[question.question];
+      responseAnswers[question.id] = {
+        answers:
+          typeof answer === "string" && answer.trim().length > 0
+            ? [answer]
+            : [],
+      };
+    }
+
+    return { answers: responseAnswers };
+  }
+
+  private extractExecPolicyAmendment(toolInput: unknown): string[] | null {
+    if (!toolInput || typeof toolInput !== "object") {
+      return null;
+    }
+
+    const record = toolInput as { proposedExecpolicyAmendment?: unknown };
+    if (!Array.isArray(record.proposedExecpolicyAmendment)) {
+      return null;
+    }
+
+    const amendment = record.proposedExecpolicyAmendment.filter(
+      (entry): entry is string => typeof entry === "string" && entry.length > 0,
+    );
+    return amendment.length > 0 ? amendment : null;
   }
 
   private convertNotificationToSDKMessages(

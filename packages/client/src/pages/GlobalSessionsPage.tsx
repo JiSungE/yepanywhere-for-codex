@@ -27,13 +27,8 @@ type AgeFilter = "3" | "7" | "14" | "30";
 
 // Provider colors for filter dropdown (matching ProviderBadge)
 const PROVIDER_COLORS: Record<ProviderName, string> = {
-  claude: "var(--app-yep-green)",
-  "claude-ollama": "var(--app-yep-green)", // Same as Claude
   codex: "#10a37f",
   "codex-oss": "#f97316",
-  gemini: "#4285f4",
-  "gemini-acp": "#4285f4", // Same as gemini
-  opencode: "#9333ea", // Purple for OpenCode
 };
 
 /**

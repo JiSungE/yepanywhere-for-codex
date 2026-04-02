@@ -1,4 +1,4 @@
-import { ClaudeProvider } from "./providers/claude.js";
+import { codexProvider } from "./providers/index.js";
 import type {
   RealClaudeSDKInterface,
   StartSessionOptions,
@@ -6,18 +6,16 @@ import type {
 } from "./types.js";
 
 /**
- * Real Claude SDK implementation.
+ * Real Codex runtime implementation.
  *
- * This is a thin wrapper around ClaudeProvider for backward compatibility.
- * New code should use ClaudeProvider directly or via the AgentProvider interface.
- *
- * @deprecated Use ClaudeProvider from ./providers/claude.js instead
+ * This wrapper is kept for backward compatibility with older supervisor wiring.
+ * New code should use the provider interface directly.
  */
 export class RealClaudeSDK implements RealClaudeSDKInterface {
-  private provider = new ClaudeProvider();
+  private provider = codexProvider;
 
   /**
-   * Start a new Claude session.
+   * Start a new Codex session.
    *
    * @param options - Session configuration
    * @returns Iterator, message queue, and abort function

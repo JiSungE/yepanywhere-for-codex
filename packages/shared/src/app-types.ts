@@ -401,6 +401,11 @@ export interface InputRequest {
   options?: string[];
   toolName?: string;
   toolInput?: unknown;
+  approvalOptions?: {
+    allowForSession?: boolean;
+    allowWithExecPolicyAmendment?: boolean;
+  };
+  execPolicyAmendment?: string[];
   timestamp: string;
 }
 

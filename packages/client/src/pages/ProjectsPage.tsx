@@ -72,8 +72,7 @@ export function ProjectsPage() {
       await refetch();
       setNewProjectPath("");
       setShowAddForm(false);
-      // Navigate to sessions filtered by the new project
-      navigate(`${basePath}/sessions?project=${project.id}`);
+      navigate(`${basePath}/projects/${project.id}`);
     } catch (err) {
       setAddError(err instanceof Error ? err.message : t("projectsAddFailed"));
     } finally {

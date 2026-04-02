@@ -20,6 +20,7 @@ import { GlobalSessionsPage } from "./pages/GlobalSessionsPage";
 import { InboxPage } from "./pages/InboxPage";
 import { LoginPage } from "./pages/LoginPage";
 import { NewSessionPage } from "./pages/NewSessionPage";
+import { ProjectPage } from "./pages/ProjectPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { SessionPage } from "./pages/SessionPage";
 import { SettingsLayout } from "./pages/settings";
@@ -54,20 +55,23 @@ createRoot(rootElement).render(
             {/* IMPORTANT: Keep routes in sync with remote-main.tsx — adding a route here? Add it there too! */}
             <Route element={<NavigationLayout />}>
               <Route path="/projects" element={<ProjectsPage />} />
+              <Route path="/threads" element={<GlobalSessionsPage />} />
               <Route path="/sessions" element={<GlobalSessionsPage />} />
               <Route path="/agents" element={<AgentsPage />} />
               <Route path="/inbox" element={<InboxPage />} />
               <Route path="/settings" element={<SettingsLayout />} />
               <Route path="/settings/:category" element={<SettingsLayout />} />
               {/* Project-scoped pages */}
-              <Route
-                path="/projects/:projectId"
-                element={<Navigate to="/sessions" replace />}
-              />
+              <Route path="/projects/:projectId" element={<ProjectPage />} />
               <Route path="/git-status" element={<GitStatusPage />} />
               <Route path="/devices" element={<EmulatorPage />} />
               <Route path="/devices/:deviceId" element={<EmulatorPage />} />
+              <Route path="/new-thread" element={<NewSessionPage />} />
               <Route path="/new-session" element={<NewSessionPage />} />
+              <Route
+                path="/projects/:projectId/threads/:sessionId"
+                element={<SessionPage />}
+              />
               <Route
                 path="/projects/:projectId/sessions/:sessionId"
                 element={<SessionPage />}

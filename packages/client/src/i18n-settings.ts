@@ -109,7 +109,7 @@ export function getSettingsCategories(
       description: t("settingsRemoteDescription"),
     },
     {
-      id: "providers",
+      id: "codex",
       label: t("settingsProvidersTitle"),
       icon: "🔌",
       description: t("settingsProvidersDescription"),

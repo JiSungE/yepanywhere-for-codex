@@ -37,6 +37,7 @@ import type {
   SessionSummary,
 } from "../supervisor/types.js";
 import { readFirstLine, readJsonlLines } from "../utils/jsonl.js";
+import { convertCodexEntries } from "./normalization.js";
 import type {
   GetSessionOptions,
   ISessionReader,
@@ -258,22 +259,87 @@ export class CodexSessionReader implements ISessionReader {
     }
   }
 
-  /**
-   * Codex doesn't have subagent sessions like Claude.
-   * Returns empty array for compatibility.
-   */
   async getAgentMappings(): Promise<{ toolUseId: string; agentId: string }[]> {
-    return [];
+    await this.scanSessions();
+
+    const mappings = new Map<string, string>();
+    for (const session of this.sessionFileCache.values()) {
+      if (session.isSubagent) {
+        continue;
+      }
+      if (this.projectPath && session.cwd !== this.projectPath) {
+        continue;
+      }
+
+      const lines = await readJsonlLines(session.filePath);
+      for (const line of lines) {
+        const entry = parseCodexSessionEntry(line);
+        if (!entry || entry.type !== "response_item") {
+          continue;
+        }
+
+        if (
+          entry.payload.type === "function_call_output" &&
+          typeof entry.payload.output === "string"
+        ) {
+          const mapping = this.extractSpawnAgentOutputMapping(
+            entry.payload.call_id,
+            entry.payload.output,
+          );
+          if (mapping) {
+            mappings.set(mapping.toolUseId, mapping.agentId);
+          }
+          continue;
+        }
+
+        if (entry.payload.type === "message" && entry.payload.role === "user") {
+          for (const block of entry.payload.content) {
+            if (block.type !== "input_text") {
+              continue;
+            }
+
+            const mapping = this.extractSubagentNotificationMapping(block.text);
+            if (mapping) {
+              mappings.set(mapping.toolUseId, mapping.agentId);
+            }
+          }
+        }
+      }
+    }
+
+    return Array.from(mappings.entries()).map(([toolUseId, agentId]) => ({
+      toolUseId,
+      agentId,
+    }));
   }
 
-  /**
-   * Codex doesn't have subagent sessions like Claude.
-   * Returns null for compatibility.
-   */
   async getAgentSession(
-    _agentId: string,
+    agentId: string,
   ): Promise<{ messages: Message[]; status: string } | null> {
-    return null;
+    await this.scanSessions();
+    const sessionFile = this.sessionFileCache.get(agentId);
+    if (!sessionFile?.isSubagent) {
+      return null;
+    }
+
+    const lines = await readJsonlLines(sessionFile.filePath);
+    const entries: CodexSessionEntry[] = [];
+    for (const line of lines) {
+      const entry = parseCodexSessionEntry(line);
+      if (entry) {
+        entries.push(entry);
+      }
+    }
+
+    const messages = convertCodexEntries(entries, agentId).map((message) => ({
+      ...message,
+      isSubagent: true,
+    }));
+
+    return {
+      messages,
+      status: this.inferAgentStatus(messages),
+    };
   }
 
   /**
@@ -418,6 +484,90 @@ export class CodexSessionReader implements ISessionReader {
       typeof subagentSource.subagent?.thread_spawn?.parent_thread_id ===
       "string"
     );
+  }
+
+  private extractSubagentNotificationMapping(
+    text: string,
+  ): { toolUseId: string; agentId: string } | null {
+    const trimmed = text.trim();
+    const prefix = "<subagent_notification>";
+    const suffix = "</subagent_notification>";
+    if (!trimmed.startsWith(prefix) || !trimmed.endsWith(suffix)) {
+      return null;
+    }
+
+    const jsonText = trimmed
+      .slice(prefix.length, trimmed.length - suffix.length)
+      .trim();
+    if (!jsonText) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(jsonText) as {
+        agent_path?: unknown;
+        tool_use_id?: unknown;
+        call_id?: unknown;
+      };
+      const agentId =
+        typeof parsed.agent_path === "string" ? parsed.agent_path : null;
+      const toolUseId =
+        typeof parsed.tool_use_id === "string"
+          ? parsed.tool_use_id
+          : typeof parsed.call_id === "string"
+            ? parsed.call_id
+            : null;
+
+      if (!agentId || !toolUseId) {
+        return null;
+      }
+
+      return { toolUseId, agentId };
+    } catch {
+      return null;
+    }
+  }
+
+  private extractSpawnAgentOutputMapping(
+    toolUseId: string,
+    output: string,
+  ): { toolUseId: string; agentId: string } | null {
+    try {
+      const parsed = JSON.parse(output) as { agent_id?: unknown; id?: unknown };
+      const agentId =
+        typeof parsed.agent_id === "string"
+          ? parsed.agent_id
+          : typeof parsed.id === "string"
+            ? parsed.id
+            : null;
+      if (!agentId) {
+        return null;
+      }
+      return { toolUseId, agentId };
+    } catch {
+      return null;
+    }
+  }
+
+  private inferAgentStatus(
+    messages: Message[],
+  ): "pending" | "running" | "completed" | "failed" {
+    if (messages.length === 0) {
+      return "pending";
+    }
+
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (!message) continue;
+      if (message.type === "error" || message.is_error === true) {
+        return "failed";
+      }
+      if (message.type === "system" && message.subtype === "turn_complete") {
+        return "completed";
+      }
+    }
+
+    return "running";
   }
 
   /**

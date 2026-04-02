@@ -7,7 +7,10 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { NewSessionDefaults } from "@yep-anywhere/shared";
+import {
+  DEFAULT_PERMISSION_MODE,
+  type NewSessionDefaults,
+} from "@yep-anywhere/shared";
 
 const CURRENT_VERSION = 1;
 
@@ -41,6 +44,9 @@ export interface ServerSettings {
 export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
   serviceWorkerEnabled: true,
   persistRemoteSessionsToDisk: false,
+  newSessionDefaults: {
+    permissionMode: DEFAULT_PERMISSION_MODE,
+  },
 };
 
 /** Stored state with version for migrations */

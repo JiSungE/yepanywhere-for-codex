@@ -1,5 +1,5 @@
 import type {
-  EffortLevel,
+  ReasoningEffortLevel,
   ThinkingMode,
   ThinkingOption,
 } from "@yep-anywhere/shared";
@@ -10,98 +10,122 @@ import {
   setServerScoped,
 } from "../lib/storageKeys";
 
-/**
- * Available model options.
- * "default" uses the CLI's default model.
- */
-export type ModelOption = "default" | "sonnet" | "opus" | "haiku";
+export const DEFAULT_MODEL_SETTING = "default";
+export const DEFAULT_REASONING_EFFORT: ReasoningEffortLevel = "medium";
 
-/**
- * Re-export shared types for convenience.
- */
-export type { EffortLevel, ThinkingMode, ThinkingOption };
-
-export const MODEL_OPTIONS: { value: ModelOption; label: string }[] = [
-  { value: "default", label: "Default" },
-  { value: "sonnet", label: "Sonnet" },
-  { value: "opus", label: "Opus" },
-  { value: "haiku", label: "Haiku" },
-];
-
-export const EFFORT_LEVEL_OPTIONS: {
-  value: EffortLevel;
+export const REASONING_EFFORT_OPTIONS: {
+  value: ReasoningEffortLevel;
   label: string;
   description: string;
 }[] = [
   { value: "low", label: "Low", description: "Fastest responses" },
-  { value: "medium", label: "Medium", description: "Moderate thinking" },
-  { value: "high", label: "High", description: "Deep reasoning" },
-  { value: "max", label: "Max", description: "Maximum effort" },
+  { value: "medium", label: "Medium", description: "Balanced reasoning" },
+  { value: "high", label: "High", description: "Deeper reasoning" },
+  { value: "xhigh", label: "Very high", description: "Maximum reasoning" },
 ];
 
-function loadModel(): ModelOption {
-  const stored = getServerScoped("model", LEGACY_KEYS.model);
-  if (stored && ["default", "sonnet", "opus", "haiku"].includes(stored)) {
-    return stored as ModelOption;
-  }
-  return "default";
-}
-
-function saveModel(model: ModelOption) {
-  setServerScoped("model", model, LEGACY_KEYS.model);
-}
-
-/** Migration map from old thinking levels to effort levels */
-const LEGACY_LEVEL_MAP: Record<string, EffortLevel> = {
+const LEGACY_REASONING_MAP: Record<string, ReasoningEffortLevel> = {
   light: "low",
   medium: "medium",
-  thorough: "max",
+  thorough: "xhigh",
+  low: "low",
+  high: "high",
+  max: "xhigh",
+  xhigh: "xhigh",
 };
 
-function loadEffortLevel(): EffortLevel {
-  const stored = getServerScoped("thinkingLevel", LEGACY_KEYS.thinkingLevel);
-  if (stored) {
-    // Check for new effort level values
-    if (["low", "medium", "high", "max"].includes(stored)) {
-      return stored as EffortLevel;
-    }
-    // Migrate old thinking level values
-    const migrated = LEGACY_LEVEL_MAP[stored];
-    if (migrated) {
-      saveEffortLevel(migrated);
-      return migrated;
-    }
-  }
-  return "high"; // SDK default
+function isReasoningEffortLevel(
+  value: string | null | undefined,
+): value is ReasoningEffortLevel {
+  return (
+    value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "xhigh"
+  );
 }
 
-function saveEffortLevel(level: EffortLevel) {
-  setServerScoped("thinkingLevel", level, LEGACY_KEYS.thinkingLevel);
+function normalizeLegacyModel(stored: string | null): string {
+  if (!stored) {
+    return DEFAULT_MODEL_SETTING;
+  }
+
+  const normalized = stored.trim();
+  if (!normalized) {
+    return DEFAULT_MODEL_SETTING;
+  }
+
+  if (
+    normalized === "sonnet" ||
+    normalized === "opus" ||
+    normalized === "haiku"
+  ) {
+    return DEFAULT_MODEL_SETTING;
+  }
+
+  return normalized;
 }
 
-const THINKING_MODES: ThinkingMode[] = ["off", "auto", "on"];
+function loadModel(): string {
+  return normalizeLegacyModel(getServerScoped("model", LEGACY_KEYS.model));
+}
 
-function loadThinkingMode(): ThinkingMode {
-  // Try new key first
-  const stored = getServerScoped("thinkingMode", LEGACY_KEYS.thinkingMode);
-  if (stored && THINKING_MODES.includes(stored as ThinkingMode)) {
-    return stored as ThinkingMode;
+function saveModel(model: string) {
+  setServerScoped(
+    "model",
+    model.trim() || DEFAULT_MODEL_SETTING,
+    LEGACY_KEYS.model,
+  );
+}
+
+function loadReasoningEffort(): ReasoningEffortLevel {
+  const stored = getServerScoped(
+    "reasoningEffort",
+    LEGACY_KEYS.reasoningEffort,
+  );
+  if (isReasoningEffortLevel(stored)) {
+    return stored;
   }
-  // Migrate from old boolean thinkingEnabled
-  const legacy = getServerScoped(
+
+  const legacyLevel = getServerScoped("thinkingLevel", LEGACY_KEYS.thinkingLevel);
+  if (legacyLevel) {
+    const migratedLevel = LEGACY_REASONING_MAP[legacyLevel];
+    if (migratedLevel) {
+      saveReasoningEffort(migratedLevel);
+      return migratedLevel;
+    }
+  }
+
+  const legacyMode = getServerScoped("thinkingMode", LEGACY_KEYS.thinkingMode);
+  const legacyEnabled = getServerScoped(
     "thinkingEnabled",
     LEGACY_KEYS.thinkingEnabled,
   );
-  if (legacy === "true") {
-    // Old "on" was adaptive, so migrate to "auto"
-    saveThinkingMode("auto");
-    return "auto";
+  if (legacyMode || legacyEnabled) {
+    saveReasoningEffort(DEFAULT_REASONING_EFFORT);
+    return DEFAULT_REASONING_EFFORT;
   }
-  return "off";
+
+  return DEFAULT_REASONING_EFFORT;
 }
 
-function saveThinkingMode(mode: ThinkingMode) {
-  setServerScoped("thinkingMode", mode, LEGACY_KEYS.thinkingMode);
+function saveReasoningEffort(level: ReasoningEffortLevel) {
+  setServerScoped(
+    "reasoningEffort",
+    level,
+    LEGACY_KEYS.reasoningEffort,
+  );
+}
+
+function loadFastMode(): boolean {
+  const stored = getServerScoped("fastMode", LEGACY_KEYS.fastMode);
+  if (stored === "true") return true;
+  if (stored === "false") return false;
+  return false;
+}
+
+function saveFastMode(enabled: boolean) {
+  setServerScoped("fastMode", enabled ? "true" : "false", LEGACY_KEYS.fastMode);
 }
 
 function loadVoiceInputEnabled(): boolean {
@@ -109,7 +133,6 @@ function loadVoiceInputEnabled(): boolean {
     "voiceInputEnabled",
     LEGACY_KEYS.voiceInputEnabled,
   );
-  // Default to true (enabled) if not set
   return stored !== "false";
 }
 
@@ -122,39 +145,39 @@ function saveVoiceInputEnabled(enabled: boolean) {
 }
 
 /**
- * Hook to manage model and thinking preferences.
+ * Hook to manage model, reasoning, and fast-mode preferences.
  */
 export function useModelSettings() {
-  const [model, setModelState] = useState<ModelOption>(loadModel);
-  const [effortLevel, setEffortLevelState] =
-    useState<EffortLevel>(loadEffortLevel);
-  const [thinkingMode, setThinkingModeState] =
-    useState<ThinkingMode>(loadThinkingMode);
+  const [model, setModelState] = useState<string>(loadModel);
+  const [reasoningEffort, setReasoningEffortState] = useState<ReasoningEffortLevel>(
+    loadReasoningEffort,
+  );
+  const [fastMode, setFastModeState] = useState<boolean>(loadFastMode);
   const [voiceInputEnabled, setVoiceInputEnabledState] = useState<boolean>(
     loadVoiceInputEnabled,
   );
 
-  const setModel = useCallback((m: ModelOption) => {
-    setModelState(m);
-    saveModel(m);
+  const setModel = useCallback((m: string) => {
+    const normalized = normalizeLegacyModel(m);
+    setModelState(normalized);
+    saveModel(normalized);
   }, []);
 
-  const setEffortLevel = useCallback((level: EffortLevel) => {
-    setEffortLevelState(level);
-    saveEffortLevel(level);
+  const setReasoningEffort = useCallback((level: ReasoningEffortLevel) => {
+    setReasoningEffortState(level);
+    saveReasoningEffort(level);
   }, []);
 
-  const setThinkingMode = useCallback((mode: ThinkingMode) => {
-    setThinkingModeState(mode);
-    saveThinkingMode(mode);
+  const setFastMode = useCallback((enabled: boolean) => {
+    setFastModeState(enabled);
+    saveFastMode(enabled);
   }, []);
 
-  const cycleThinkingMode = useCallback(() => {
-    const idx = THINKING_MODES.indexOf(thinkingMode);
-    const next = THINKING_MODES[(idx + 1) % THINKING_MODES.length] ?? "off";
-    setThinkingModeState(next);
-    saveThinkingMode(next);
-  }, [thinkingMode]);
+  const toggleFastMode = useCallback(() => {
+    const next = !fastMode;
+    setFastModeState(next);
+    saveFastMode(next);
+  }, [fastMode]);
 
   const setVoiceInputEnabled = useCallback((enabled: boolean) => {
     setVoiceInputEnabledState(enabled);
@@ -170,50 +193,49 @@ export function useModelSettings() {
   return {
     model,
     setModel,
-    effortLevel,
-    setEffortLevel,
-    // Keep thinkingLevel as alias for backward compat with components
-    thinkingLevel: effortLevel,
-    setThinkingLevel: setEffortLevel,
-    thinkingMode,
-    setThinkingMode,
-    cycleThinkingMode,
+    reasoningEffort,
+    setReasoningEffort,
+    effortLevel: reasoningEffort,
+    setEffortLevel: setReasoningEffort,
+    fastMode,
+    setFastMode,
+    toggleFastMode,
     voiceInputEnabled,
     setVoiceInputEnabled,
     toggleVoiceInput,
   };
 }
 
-/**
- * Get model setting without React state (for non-component code).
- */
-export function getModelSetting(): ModelOption {
+export function getModelSetting(): string {
   return loadModel();
 }
 
+export function getReasoningEffortSetting(): ReasoningEffortLevel {
+  return loadReasoningEffort();
+}
+
+export function getFastModeSetting(): boolean {
+  return loadFastMode();
+}
+
 /**
- * Get thinking setting as ThinkingOption (for API compatibility).
- * - "off" when thinking is disabled
- * - "auto" for adaptive (model decides when to think)
- * - "on:level" for forced-on thinking at that effort level
+ * Legacy compatibility helper for old code paths.
+ * New code should use getReasoningEffortSetting instead.
  */
 export function getThinkingSetting(): ThinkingOption {
-  const mode = loadThinkingMode();
-  if (mode === "off") return "off";
-  if (mode === "auto") return "auto";
-  return `on:${loadEffortLevel()}`;
+  const effort = loadReasoningEffort();
+  const legacyEffort = effort === "xhigh" ? "max" : effort;
+  return `on:${legacyEffort}` as ThinkingOption;
 }
 
 /**
- * Get thinking mode without React state.
+ * Legacy compatibility helper for old code paths.
+ * New composer UI no longer supports off/auto modes.
  */
 export function getThinkingMode(): ThinkingMode {
-  return loadThinkingMode();
+  return "on";
 }
 
-/**
- * Get voice input enabled state without React state.
- */
 export function getVoiceInputEnabled(): boolean {
   return loadVoiceInputEnabled();
 }

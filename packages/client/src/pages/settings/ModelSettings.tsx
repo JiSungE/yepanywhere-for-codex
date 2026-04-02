@@ -1,13 +1,24 @@
 import {
-  EFFORT_LEVEL_OPTIONS,
-  MODEL_OPTIONS,
+  DEFAULT_MODEL_SETTING,
+  REASONING_EFFORT_OPTIONS,
   useModelSettings,
 } from "../../hooks/useModelSettings";
+import { getDefaultProvider, useProviders } from "../../hooks/useProviders";
 import { useI18n } from "../../i18n";
 
 export function ModelSettings() {
   const { t } = useI18n();
-  const { model, setModel, effortLevel, setEffortLevel } = useModelSettings();
+  const { providers } = useProviders();
+  const defaultProvider = getDefaultProvider(providers);
+  const availableModels = defaultProvider?.models ?? [];
+  const {
+    model,
+    setModel,
+    reasoningEffort,
+    setReasoningEffort,
+    fastMode,
+    setFastMode,
+  } = useModelSettings();
 
   return (
     <section className="settings-section">
@@ -19,12 +30,39 @@ export function ModelSettings() {
             <p>{t("modelSettingsModelDescription")}</p>
           </div>
           <div className="font-size-selector">
-            {MODEL_OPTIONS.map((opt) => (
+            <button
+              type="button"
+              className={`font-size-option ${model === DEFAULT_MODEL_SETTING ? "active" : ""}`}
+              onClick={() => setModel(DEFAULT_MODEL_SETTING)}
+            >
+              {t("modelSettingsModelDefault")}
+            </button>
+            {availableModels.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                className={`font-size-option ${model === opt.id ? "active" : ""}`}
+                onClick={() => setModel(opt.id)}
+                title={opt.description}
+              >
+                {opt.name}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="settings-item">
+          <div className="settings-item-info">
+            <strong>{t("modelSettingsReasoningTitle")}</strong>
+            <p>{t("modelSettingsReasoningDescription")}</p>
+          </div>
+          <div className="font-size-selector">
+            {REASONING_EFFORT_OPTIONS.map((opt) => (
               <button
                 key={opt.value}
                 type="button"
-                className={`font-size-option ${model === opt.value ? "active" : ""}`}
-                onClick={() => setModel(opt.value)}
+                className={`font-size-option ${reasoningEffort === opt.value ? "active" : ""}`}
+                onClick={() => setReasoningEffort(opt.value)}
+                title={opt.description}
               >
                 {opt.label}
               </button>
@@ -33,21 +71,24 @@ export function ModelSettings() {
         </div>
         <div className="settings-item">
           <div className="settings-item-info">
-            <strong>{t("modelSettingsEffortTitle")}</strong>
-            <p>{t("modelSettingsEffortDescription")}</p>
+            <strong>{t("modelSettingsFastModeTitle")}</strong>
+            <p>{t("modelSettingsFastModeDescription")}</p>
           </div>
           <div className="font-size-selector">
-            {EFFORT_LEVEL_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                className={`font-size-option ${effortLevel === opt.value ? "active" : ""}`}
-                onClick={() => setEffortLevel(opt.value)}
-                title={opt.description}
-              >
-                {opt.label}
-              </button>
-            ))}
+            <button
+              type="button"
+              className={`font-size-option ${!fastMode ? "active" : ""}`}
+              onClick={() => setFastMode(false)}
+            >
+              {t("modelSettingsFastModeOff")}
+            </button>
+            <button
+              type="button"
+              className={`font-size-option ${fastMode ? "active" : ""}`}
+              onClick={() => setFastMode(true)}
+            >
+              {t("modelSettingsFastModeOn")}
+            </button>
           </div>
         </div>
       </div>

@@ -51,12 +51,12 @@ export function ProjectSelector({
   const handleProjectSelect = (project: Project) => {
     if (project.id !== currentProjectId) {
       // If a callback is provided, use it (allows parent to handle URL updates)
-      // Otherwise navigate to the new project's new-session page
+      // Otherwise navigate to the new project's new-thread page
       if (onProjectChange) {
         onProjectChange(project);
       } else {
         navigate(
-          `${basePath}/new-session?projectId=${encodeURIComponent(project.id)}`,
+          `${basePath}/new-thread?projectId=${encodeURIComponent(project.id)}`,
         );
       }
     }

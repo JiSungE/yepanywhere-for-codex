@@ -1,4 +1,4 @@
-// Provider abstraction types for multi-provider support
+// Provider abstraction types for Codex runtimes
 import type {
   ModelInfo,
   PermissionMode,
@@ -8,16 +8,9 @@ import type { MessageQueue } from "../messageQueue.js";
 import type { CanUseTool, SDKMessage, UserMessage } from "../types.js";
 
 /**
- * Provider names - extensible for future providers.
+ * Supported Codex runtimes.
  */
-export type ProviderName =
-  | "claude"
-  | "claude-ollama"
-  | "codex"
-  | "codex-oss"
-  | "gemini"
-  | "gemini-acp"
-  | "opencode";
+export type ProviderName = "codex" | "codex-oss";
 
 /**
  * Authentication status for a provider.
@@ -47,17 +40,19 @@ export interface StartSessionOptions {
   resumeSessionId?: string;
   /** Permission mode for tool approvals */
   permissionMode?: PermissionMode;
-  /** Model to use (e.g., "sonnet", "opus", "haiku") */
+  /** Model to use. undefined = use runtime default */
   model?: string;
   /** Thinking configuration (undefined = thinking disabled) */
   thinking?: import("@yep-anywhere/shared").ThinkingConfig;
   /** Effort level for response quality (undefined = SDK default) */
   effort?: import("@yep-anywhere/shared").EffortLevel;
+  /** Whether to enable Codex fast mode for the session */
+  fastMode?: boolean;
   /** Tool approval callback */
   onToolApproval?: CanUseTool;
   /** SSH host for remote execution (undefined = local) */
   executor?: string;
-  /** Environment variables to set on remote (for testing: CLAUDE_SESSIONS_DIR) */
+  /** Environment variables to set on remote (for testing: CODEX_* overrides) */
   remoteEnv?: Record<string, string>;
   /** Global instructions to append to system prompt (from server settings) */
   globalInstructions?: string;
@@ -116,7 +111,7 @@ export interface AgentSession {
 
 /**
  * Agent provider interface.
- * All providers (Claude, Codex, Gemini, local) implement this interface.
+ * Both supported runtimes implement this interface.
  */
 export interface AgentProvider {
   /** Provider identifier */
@@ -125,15 +120,17 @@ export interface AgentProvider {
   readonly displayName: string;
   /** Whether this provider supports permission modes (default: true) */
   readonly supportsPermissionMode: boolean;
-  /** Whether this provider supports extended thinking toggle (default: true) */
+  /** Whether this provider supports Codex-style reasoning controls */
+  readonly supportsReasoningControl: boolean;
+  /** Whether this provider supports extended thinking toggle (deprecated alias) */
   readonly supportsThinkingToggle: boolean;
+  /** Whether this provider supports fast mode */
+  readonly supportsFastMode: boolean;
   /** Whether this provider supports slash commands (default: false) */
   readonly supportsSlashCommands: boolean;
 
   /**
-   * Check if this provider is installed and available.
-   * For SDK-based providers, this is always true.
-   * For CLI-based providers, this checks if the binary exists.
+   * Check if this runtime is installed and available.
    */
   isInstalled(): Promise<boolean>;
 

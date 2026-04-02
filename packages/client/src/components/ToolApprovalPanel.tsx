@@ -7,7 +7,7 @@ import type { RenderContext } from "./renderers/types";
 import { getToolSummary } from "./tools/summaries";
 import { Modal } from "./ui/Modal";
 
-// Tools that can be auto-approved with "accept edits" mode
+// Tools that can escalate into full-access mode from the approval panel
 const EDIT_TOOLS = ["Edit", "Write", "NotebookEdit"];
 
 // Check if this is an ExitPlanMode approval (needs custom UI)
@@ -20,6 +20,8 @@ interface Props {
   onApprove: () => Promise<void>;
   onDeny: () => Promise<void>;
   onApproveAcceptEdits?: () => Promise<void>;
+  onApproveForSession?: () => Promise<void>;
+  onApprovePolicyAmendment?: () => Promise<void>;
   onDenyWithFeedback?: (feedback: string) => Promise<void>;
   /** Whether the panel is collapsed (controlled externally) */
   collapsed?: boolean;
@@ -36,6 +38,8 @@ export function ToolApprovalPanel({
   onApprove,
   onDeny,
   onApproveAcceptEdits,
+  onApproveForSession,
+  onApprovePolicyAmendment,
   onDenyWithFeedback,
   collapsed = false,
   onCollapsedChange,
@@ -59,6 +63,11 @@ export function ToolApprovalPanel({
   }, [request.id]);
 
   const isEditTool = request.toolName && EDIT_TOOLS.includes(request.toolName);
+  const supportsApproveForSession =
+    request.approvalOptions?.allowForSession === true && !!onApproveForSession;
+  const supportsApprovePolicyAmendment =
+    request.approvalOptions?.allowWithExecPolicyAmendment === true &&
+    !!onApprovePolicyAmendment;
 
   const handleApprove = useCallback(async () => {
     setSubmitting(true);
@@ -78,6 +87,26 @@ export function ToolApprovalPanel({
       setSubmitting(false);
     }
   }, [onApproveAcceptEdits]);
+
+  const handleApproveForSession = useCallback(async () => {
+    if (!onApproveForSession) return;
+    setSubmitting(true);
+    try {
+      await onApproveForSession();
+    } finally {
+      setSubmitting(false);
+    }
+  }, [onApproveForSession]);
+
+  const handleApprovePolicyAmendment = useCallback(async () => {
+    if (!onApprovePolicyAmendment) return;
+    setSubmitting(true);
+    try {
+      await onApprovePolicyAmendment();
+    } finally {
+      setSubmitting(false);
+    }
+  }, [onApprovePolicyAmendment]);
 
   const handleDeny = useCallback(async () => {
     setSubmitting(true);
@@ -129,7 +158,7 @@ export function ToolApprovalPanel({
       const isPlanMode = isExitPlanMode(request.toolName);
 
       if (isPlanMode) {
-        // ExitPlanMode: 1=auto-accept, 2=manual, 3=deny
+        // ExitPlanMode: 1=full access, 2=manual approvals, 3=deny
         if (e.key === "1" && onApproveAcceptEdits) {
           e.preventDefault();
           handleApproveAcceptEdits();
@@ -147,7 +176,7 @@ export function ToolApprovalPanel({
           handleDeny();
         }
       } else {
-        // Standard tool approval: 1=yes, 2=yes+auto (edit tools), 2/3=no
+        // Standard tool approval: 1=yes, 2=yes+don't ask again (edit tools), 2/3=no
         if (e.key === "1") {
           e.preventDefault();
           handleApprove();
@@ -305,7 +334,7 @@ export function ToolApprovalPanel({
                   disabled={!armed || submitting || !onApproveAcceptEdits}
                 >
                   <kbd>1</kbd>
-                  <span>{t("toolApprovalYesAuto")}</span>
+                  <span>{t("toolApprovalYesDontAsk")}</span>
                 </button>
                 <button
                   type="button"
@@ -347,6 +376,28 @@ export function ToolApprovalPanel({
                   >
                     <kbd>2</kbd>
                     <span>{t("toolApprovalYesDontAsk")}</span>
+                  </button>
+                )}
+
+                {supportsApproveForSession && (
+                  <button
+                    type="button"
+                    className="tool-approval-option"
+                    onClick={handleApproveForSession}
+                    disabled={!armed || submitting}
+                  >
+                    <span>{t("toolApprovalYesThisSession")}</span>
+                  </button>
+                )}
+
+                {supportsApprovePolicyAmendment && (
+                  <button
+                    type="button"
+                    className="tool-approval-option"
+                    onClick={handleApprovePolicyAmendment}
+                    disabled={!armed || submitting}
+                  >
+                    <span>{t("toolApprovalYesAllowSimilar")}</span>
                   </button>
                 )}
 

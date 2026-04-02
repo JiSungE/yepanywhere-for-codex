@@ -31,7 +31,9 @@ export abstract class BaseMockProvider implements MockAgentProvider {
   abstract readonly displayName: string;
   // Mock providers default to Claude-like behavior (supports all)
   readonly supportsPermissionMode = true;
+  readonly supportsReasoningControl = true;
   readonly supportsThinkingToggle = true;
+  readonly supportsFastMode = true;
   readonly supportsSlashCommands = true;
 
   protected scenarios: MockScenario[] = [];
@@ -119,7 +121,14 @@ export abstract class BaseMockProvider implements MockAgentProvider {
    * Get available models (mock implementation).
    */
   async getAvailableModels(): Promise<ModelInfo[]> {
-    return [{ id: "mock-model", name: "Mock Model" }];
+    return [
+      {
+        id: "mock-model",
+        name: "Mock Model",
+        reasoningEfforts: ["low", "medium", "high", "xhigh"],
+        supportsFastMode: true,
+      },
+    ];
   }
 
   /**

@@ -138,6 +138,8 @@ export class Process {
   private _thinking: ThinkingConfig | undefined;
   /** Effort level for response quality */
   private _effort: EffortLevel | undefined;
+  /** Whether fast mode is enabled for this process */
+  private _fastMode = false;
 
   /** Function to change max thinking tokens at runtime (SDK 0.2.7+) */
   private setMaxThinkingTokensFn:
@@ -211,6 +213,7 @@ export class Process {
     this.executor = options.executor;
     this._thinking = options.thinking;
     this._effort = options.effort;
+    this._fastMode = options.fastMode ?? false;
     this.setMaxThinkingTokensFn = options.setMaxThinkingTokensFn ?? null;
     this.interruptFn = options.interruptFn ?? null;
     this.steerFn = options.steerFn ?? null;
@@ -327,11 +330,25 @@ export class Process {
   }
 
   /**
+   * Whether fast mode is enabled for this process.
+   */
+  get fastMode(): boolean {
+    return this._fastMode;
+  }
+
+  /**
    * Update thinking config and effort after a dynamic change.
    */
   updateThinkingConfig(thinking?: ThinkingConfig, effort?: EffortLevel): void {
     this._thinking = thinking;
     this._effort = effort;
+  }
+
+  /**
+   * Update the fast-mode flag after a process restart or reconciliation.
+   */
+  updateFastMode(fastMode: boolean | undefined): void {
+    this._fastMode = fastMode ?? false;
   }
 
   /**
@@ -713,6 +730,7 @@ export class Process {
       model: this._resolvedModel ?? this.model,
       thinking: this._thinking,
       effort: this._effort,
+      fastMode: this._fastMode,
       executor: this.executor,
       pid: this.pid,
     };
@@ -1228,6 +1246,7 @@ export class Process {
     }
 
     // Default behavior: ask user for approval
+    const execPolicyAmendment = this.extractExecPolicyAmendment(input);
     const request: InputRequest = {
       id: randomUUID(),
       sessionId: this._sessionId,
@@ -1235,6 +1254,13 @@ export class Process {
       prompt: `Allow ${toolName}?`,
       toolName,
       toolInput: input,
+      approvalOptions: {
+        allowForSession:
+          this.provider === "codex" || this.provider === "codex-oss",
+        allowWithExecPolicyAmendment:
+          Array.isArray(execPolicyAmendment) && execPolicyAmendment.length > 0,
+      },
+      execPolicyAmendment,
       timestamp: new Date().toISOString(),
     };
 
@@ -1301,7 +1327,11 @@ export class Process {
    */
   respondToInput(
     requestId: string,
-    response: "approve" | "deny",
+    response:
+      | "approve"
+      | "approve_session"
+      | "approve_policy_amendment"
+      | "deny",
     answers?: Record<string, string>,
     feedback?: string,
   ): boolean {
@@ -1327,14 +1357,28 @@ export class Process {
     // If user just clicked "No" without feedback, set interrupt: true to stop retrying.
     // If user provided feedback, set interrupt: false so Claude can incorporate the guidance.
     const shouldInterrupt = response === "deny" && !trimmedFeedback;
+    const isApprovalResponse =
+      response === "approve" ||
+      response === "approve_session" ||
+      response === "approve_policy_amendment";
     const result: ToolApprovalResult = {
-      behavior: response === "approve" ? "allow" : "deny",
+      behavior: isApprovalResponse ? "allow" : "deny",
+      scope:
+        response === "approve_session"
+          ? "session"
+          : response === "approve_policy_amendment"
+            ? "policy-amendment"
+            : "once",
       message: response === "deny" ? denyMessage : undefined,
       interrupt: response === "deny" ? shouldInterrupt : undefined,
     };
 
+    if (response === "approve_policy_amendment") {
+      result.execPolicyAmendment = pending.request.execPolicyAmendment;
+    }
+
     // If answers provided (AskUserQuestion), pass them as updatedInput
-    if (answers && response === "approve") {
+    if (answers && isApprovalResponse) {
       const originalInput = pending.request.toolInput as {
         questions?: unknown[];
       };
@@ -1345,16 +1389,13 @@ export class Process {
     }
 
     // If EnterPlanMode is approved, switch to plan mode
-    if (
-      response === "approve" &&
-      pending.request.toolName === "EnterPlanMode"
-    ) {
+    if (isApprovalResponse && pending.request.toolName === "EnterPlanMode") {
       this.setPermissionMode("plan");
     }
 
-    // If ExitPlanMode is approved, switch back to default mode
-    if (response === "approve" && pending.request.toolName === "ExitPlanMode") {
-      this.setPermissionMode("default");
+    // If ExitPlanMode is approved, switch back to full-access mode
+    if (isApprovalResponse && pending.request.toolName === "ExitPlanMode") {
+      this.setPermissionMode("bypassPermissions");
     }
 
     // Resolve the promise and remove from tracking
@@ -1649,6 +1690,23 @@ export class Process {
     };
 
     this.setState({ type: "waiting-input", request });
+  }
+
+  private extractExecPolicyAmendment(input: unknown): string[] | undefined {
+    if (!input || typeof input !== "object") {
+      return undefined;
+    }
+
+    const amendment = (input as { proposedExecpolicyAmendment?: unknown })
+      .proposedExecpolicyAmendment;
+    if (!Array.isArray(amendment)) {
+      return undefined;
+    }
+
+    const normalized = amendment.filter(
+      (entry): entry is string => typeof entry === "string" && entry.length > 0,
+    );
+    return normalized.length > 0 ? normalized : undefined;
   }
 
   private transitionToIdle(): void {

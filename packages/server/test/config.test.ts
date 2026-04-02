@@ -35,4 +35,20 @@ describe("loadConfig codex paths", () => {
       path.join(os.homedir(), ".codex", "sessions"),
     );
   });
+
+  it("defaults permission mode to bypassPermissions", async () => {
+    const { loadConfig } = await import("../src/config.js");
+    const config = loadConfig();
+
+    expect(config.defaultPermissionMode).toBe("bypassPermissions");
+  });
+
+  it("accepts plan as an explicit PERMISSION_MODE override", async () => {
+    vi.stubEnv("PERMISSION_MODE", "plan");
+
+    const { loadConfig } = await import("../src/config.js");
+    const config = loadConfig();
+
+    expect(config.defaultPermissionMode).toBe("plan");
+  });
 });

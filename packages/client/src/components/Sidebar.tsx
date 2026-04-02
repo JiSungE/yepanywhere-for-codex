@@ -331,12 +331,12 @@ export function Sidebar({
         </div>
 
         <div className="sidebar-actions">
-          {/* New Session: link to most recent project's new session page */}
+          {/* New Thread: link to most recent project's new thread page */}
           <SidebarNavItem
             to={
               newSessionProject
-                ? `/new-session?projectId=${encodeURIComponent(newSessionProject.id)}`
-                : "/new-session"
+                ? `/new-thread?projectId=${encodeURIComponent(newSessionProject.id)}`
+                : "/new-thread"
             }
             icon={SidebarIcons.newSession}
             label={t("sidebarNewSession")}

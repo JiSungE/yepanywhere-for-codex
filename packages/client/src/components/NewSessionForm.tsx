@@ -1,7 +1,8 @@
 import {
+  DEFAULT_PERMISSION_MODE,
   type ModelInfo,
+  type ReasoningEffortLevel,
   type ProviderName,
-  resolveModel,
 } from "@yep-anywhere/shared";
 import {
   type ChangeEvent,
@@ -20,8 +21,9 @@ import { useToastContext } from "../contexts/ToastContext";
 import { useConnection } from "../hooks/useConnection";
 import { useDraftPersistence } from "../hooks/useDraftPersistence";
 import {
+  DEFAULT_MODEL_SETTING,
   getModelSetting,
-  getThinkingSetting,
+  REASONING_EFFORT_OPTIONS,
   useModelSettings,
 } from "../hooks/useModelSettings";
 import {
@@ -34,9 +36,11 @@ import { useRemoteExecutors } from "../hooks/useRemoteExecutors";
 import { useServerSettings } from "../hooks/useServerSettings";
 import { useI18n } from "../i18n";
 import { hasCoarsePointer } from "../lib/deviceDetection";
+import { normalizeVisiblePermissionMode } from "../lib/permissionMode";
 import type { PermissionMode } from "../types";
 import { FilterDropdown, type FilterOption } from "./FilterDropdown";
 import { clearFabPrefill, getFabPrefill } from "./FloatingActionButton";
+import { ReasoningControl } from "./ReasoningControl";
 import { VoiceInputButton, type VoiceInputButtonRef } from "./VoiceInputButton";
 
 interface PendingFile {
@@ -45,12 +49,17 @@ interface PendingFile {
   previewUrl?: string;
 }
 
-const MODE_ORDER: PermissionMode[] = [
-  "default",
-  "acceptEdits",
-  "plan",
-  "bypassPermissions",
-];
+const MODE_ORDER: PermissionMode[] = ["bypassPermissions", "plan"];
+
+const REASONING_LEVEL_LABEL_KEYS: Record<
+  ReasoningEffortLevel,
+  "reasoningLevelLow" | "reasoningLevelMedium" | "reasoningLevelHigh" | "reasoningLevelVeryHigh"
+> = {
+  low: "reasoningLevelLow",
+  medium: "reasoningLevelMedium",
+  high: "reasoningLevelHigh",
+  xhigh: "reasoningLevelVeryHigh",
+};
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -71,7 +80,10 @@ function getPreferredModelId(
     if (matchingPreferredModel) return matchingPreferredModel.id;
   }
 
-  const targetModelId = resolveModel(getModelSetting());
+  const targetModelId = getModelSetting();
+  if (targetModelId === DEFAULT_MODEL_SETTING) {
+    return models[0]?.id ?? null;
+  }
   const matchingUserSetting = models.find((m) => m.id === targetModelId);
   return matchingUserSetting?.id ?? models[0]?.id ?? null;
 }
@@ -98,10 +110,13 @@ export function NewSessionForm({
   const { t } = useI18n();
   const navigate = useNavigate();
   const basePath = useRemoteBasePath();
+  const { reasoningEffort, setReasoningEffort, fastMode } = useModelSettings();
   const [message, setMessage, draftControls] = useDraftPersistence(
     `draft-new-session-${projectId}`,
   );
-  const [mode, setMode] = useState<PermissionMode>("default");
+  const [mode, setMode] = useState<PermissionMode>(
+    normalizeVisiblePermissionMode(DEFAULT_PERMISSION_MODE),
+  );
   const [selectedProvider, setSelectedProvider] = useState<ProviderName | null>(
     null,
   );
@@ -119,9 +134,6 @@ export function NewSessionForm({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const voiceButtonRef = useRef<VoiceInputButtonRef>(null);
   const hasInitializedDefaultsRef = useRef(false);
-
-  // Thinking toggle state
-  const { thinkingMode, cycleThinkingMode, thinkingLevel } = useModelSettings();
 
   // Connection for uploads (uses WebSocket when enabled)
   const connection = useConnection();
@@ -163,8 +175,18 @@ export function NewSessionForm({
   // Default to true for backwards compatibility with providers that don't set these flags
   const supportsPermissionMode =
     selectedProviderInfo?.supportsPermissionMode ?? true;
-  const supportsThinkingToggle =
-    selectedProviderInfo?.supportsThinkingToggle ?? true;
+  const supportsReasoningControl =
+    selectedProviderInfo?.supportsReasoningControl ??
+    selectedProviderInfo?.supportsThinkingToggle ??
+    true;
+  const selectedModelInfo =
+    availableModels.find((model) => model.id === selectedModel) ?? null;
+  const supportedReasoningEfforts =
+    selectedModelInfo?.reasoningEfforts ??
+    (supportsReasoningControl ? ["low", "medium", "high"] : []);
+  const supportsFastMode =
+    selectedModelInfo?.supportsFastMode ??
+    (selectedProviderInfo?.supportsFastMode ?? false);
 
   // Initialize provider/model/mode from saved defaults once settings and providers load.
   useEffect(() => {
@@ -199,7 +221,7 @@ export function NewSessionForm({
     setSelectedModel(
       getPreferredModelId(initialProvider.models ?? [], savedDefaults?.model),
     );
-    setMode(savedDefaults?.permissionMode ?? "default");
+    setMode(normalizeVisiblePermissionMode(savedDefaults?.permissionMode));
   }, [
     availableProviders,
     providers,
@@ -311,7 +333,7 @@ export function NewSessionForm({
   };
 
   const handleModeSelect = (selectedMode: PermissionMode) => {
-    setMode(selectedMode);
+    setMode(normalizeVisiblePermissionMode(selectedMode));
   };
 
   const handleSaveDefaults = useCallback(async () => {
@@ -320,7 +342,7 @@ export function NewSessionForm({
       await updateServerSetting("newSessionDefaults", {
         provider: selectedProvider ?? undefined,
         model: selectedModel ?? undefined,
-        permissionMode: mode,
+        permissionMode: normalizeVisiblePermissionMode(mode),
       });
       showToast(t("newSessionDefaultsSaved"), "success");
     } catch (err) {
@@ -366,12 +388,11 @@ export function NewSessionForm({
       let processId: string;
       const uploadedFiles: UploadedFile[] = [];
 
-      // Get model and thinking settings
-      const thinking = getThinkingSetting();
       const sessionOptions = {
-        mode,
+        mode: normalizeVisiblePermissionMode(mode),
         model: selectedModel ?? undefined,
-        thinking,
+        reasoningEffort,
+        fastMode,
         provider: selectedProvider ?? undefined,
         executor: selectedExecutor ?? undefined,
       };
@@ -419,10 +440,12 @@ export function NewSessionForm({
         await api.queueMessage(
           sessionId,
           trimmedMessage,
-          mode,
+          normalizeVisiblePermissionMode(mode),
           uploadedFiles.length > 0 ? uploadedFiles : undefined,
           undefined, // tempId
-          thinking, // Pass the captured thinking setting to avoid process restart
+          undefined,
+          reasoningEffort,
+          fastMode,
         );
       } else {
         // No files - use single-step flow for efficiency
@@ -447,7 +470,7 @@ export function NewSessionForm({
       // without waiting for getSession to complete
       // Also pass initial message as optimistic title (session name = first message)
       // Pass model/provider so ProviderBadge can render immediately
-      navigate(`${basePath}/projects/${projectId}/sessions/${sessionId}`, {
+      navigate(`${basePath}/projects/${projectId}/threads/${sessionId}`, {
         state: {
           initialStatus: { state: "owned", processId },
           initialTitle: trimmedMessage,
@@ -572,11 +595,15 @@ export function NewSessionForm({
 
   const hasContent = message.trim() || pendingFiles.length > 0;
   const savedDefaults = settings?.newSessionDefaults;
+  const effectiveDefaultPermissionMode =
+    normalizeVisiblePermissionMode(savedDefaults?.permissionMode);
+  const reasoningEnabled =
+    supportsReasoningControl && supportedReasoningEfforts.length > 0;
   const defaultsMatchCurrent =
     (savedDefaults?.provider ?? undefined) ===
       (selectedProvider ?? undefined) &&
     (savedDefaults?.model ?? undefined) === (selectedModel ?? undefined) &&
-    (savedDefaults?.permissionMode ?? "default") === mode;
+    effectiveDefaultPermissionMode === normalizeVisiblePermissionMode(mode);
 
   // Shared input area with toolbar (textarea + attach/voice on left, send on right)
   const inputArea = (
@@ -631,61 +658,13 @@ export function NewSessionForm({
             disabled={isStarting}
             className="toolbar-button"
           />
-          {supportsThinkingToggle && (
-            <button
-              type="button"
-              className={`toolbar-button thinking-toggle-button ${thinkingMode !== "off" ? `active ${thinkingMode}` : ""}`}
-              onClick={cycleThinkingMode}
-              disabled={isStarting}
-              title={
-                thinkingMode === "off"
-                  ? t("newSessionThinkingOff")
-                  : thinkingMode === "auto"
-                    ? t("newSessionThinkingAuto")
-                    : t("newSessionThinkingOn", { level: thinkingLevel })
-              }
-              aria-label={t("newSessionThinkingMode", { mode: thinkingMode })}
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 16 14" />
-                {thinkingMode === "auto" && (
-                  <g>
-                    <circle
-                      cx="19"
-                      cy="5"
-                      r="5.5"
-                      fill="currentColor"
-                      stroke="none"
-                    />
-                    <text
-                      x="19"
-                      y="5"
-                      textAnchor="middle"
-                      dominantBaseline="central"
-                      fill="var(--bg-primary, #1a1a2e)"
-                      fontSize="8"
-                      fontWeight="700"
-                      fontFamily="system-ui, sans-serif"
-                      stroke="none"
-                    >
-                      A
-                    </text>
-                  </g>
-                )}
-              </svg>
-            </button>
-          )}
+          <ReasoningControl
+            disabled={isStarting}
+            supportsReasoningControl={supportsReasoningControl}
+            reasoningEfforts={supportedReasoningEfforts}
+            supportsFastMode={supportsFastMode}
+            showSelector={compact}
+          />
         </div>
         <button
           type="button"
@@ -889,7 +868,7 @@ export function NewSessionForm({
               <button
                 key={m}
                 type="button"
-                className={`mode-option ${mode === m ? "selected" : ""}`}
+                className={`mode-option ${normalizeVisiblePermissionMode(mode) === m ? "selected" : ""}`}
                 onClick={() => handleModeSelect(m)}
                 disabled={isStarting}
               >
@@ -924,6 +903,48 @@ export function NewSessionForm({
                 ? t("newSessionDefaultsSaving")
                 : t("newSessionDefaultsAction")}
             </button>
+          </div>
+        </div>
+      )}
+
+      {reasoningEnabled && (
+        <div className="new-session-mode-section">
+          <h3>{t("reasoningControlMenuLabel")}</h3>
+          <div className="mode-options">
+            {REASONING_EFFORT_OPTIONS.map((option) => {
+              const supported = supportedReasoningEfforts.includes(option.value);
+              const selected = reasoningEffort === option.value;
+              const label = t(REASONING_LEVEL_LABEL_KEYS[option.value]);
+
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`mode-option ${selected ? "selected" : ""}`}
+                  onClick={() => setReasoningEffort(option.value)}
+                  disabled={isStarting || !supported}
+                  title={
+                    supported
+                      ? option.description
+                      : t("reasoningControlLevelUnsupported", { level: label })
+                  }
+                >
+                  <span
+                    className={`mode-option-dot reasoning-${option.value}`}
+                  />
+                  <div className="mode-option-content">
+                    <span className="mode-option-label">{label}</span>
+                    <span className="mode-option-desc">
+                      {supported
+                        ? option.description
+                        : t("reasoningControlLevelUnsupported", {
+                            level: label,
+                          })}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

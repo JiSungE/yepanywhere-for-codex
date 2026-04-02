@@ -1,10 +1,13 @@
-import type { UploadedFile } from "@yep-anywhere/shared";
+import {
+  DEFAULT_PERMISSION_MODE,
+  type ReasoningEffortLevel,
+} from "@yep-anywhere/shared";
 import type { RefObject } from "react";
-import { useModelSettings } from "../hooks/useModelSettings";
 import { useI18n } from "../i18n";
 import type { ContextUsage, PermissionMode } from "../types";
 import { ContextUsageIndicator } from "./ContextUsageIndicator";
 import { ModeSelector } from "./ModeSelector";
+import { ReasoningControl } from "./ReasoningControl";
 import { SlashCommandButton } from "./SlashCommandButton";
 import { VoiceInputButton, type VoiceInputButtonRef } from "./VoiceInputButton";
 
@@ -17,7 +20,9 @@ export interface MessageInputToolbarProps {
 
   // Provider capability flags (default to true for backwards compatibility)
   supportsPermissionMode?: boolean;
-  supportsThinkingToggle?: boolean;
+  supportsReasoningControl?: boolean;
+  reasoningEfforts?: ReasoningEffortLevel[];
+  supportsFastMode?: boolean;
 
   // Attachments
   canAttach?: boolean;
@@ -56,12 +61,14 @@ export interface MessageInputToolbarProps {
 }
 
 export function MessageInputToolbar({
-  mode = "default",
+  mode = DEFAULT_PERMISSION_MODE,
   onModeChange,
   isHeld,
   onHoldChange,
   supportsPermissionMode = true,
-  supportsThinkingToggle = true,
+  supportsReasoningControl = true,
+  reasoningEfforts = ["low", "medium", "high", "xhigh"],
+  supportsFastMode = false,
   canAttach,
   attachmentCount = 0,
   onAttachClick,
@@ -83,7 +90,6 @@ export function MessageInputToolbar({
   pendingApproval,
 }: MessageInputToolbarProps) {
   const { t } = useI18n();
-  const { thinkingMode, cycleThinkingMode, thinkingLevel } = useModelSettings();
 
   return (
     <div className="message-input-toolbar">
@@ -120,60 +126,12 @@ export function MessageInputToolbar({
             <span className="attach-count">{attachmentCount}</span>
           )}
         </button>
-        {supportsThinkingToggle && (
-          <button
-            type="button"
-            className={`thinking-toggle-button ${thinkingMode !== "off" ? `active ${thinkingMode}` : ""}`}
-            onClick={cycleThinkingMode}
-            title={
-              thinkingMode === "off"
-                ? t("newSessionThinkingOff")
-                : thinkingMode === "auto"
-                  ? t("newSessionThinkingAuto")
-                  : t("newSessionThinkingOn", { level: thinkingLevel })
-            }
-            aria-label={t("newSessionThinkingMode", { mode: thinkingMode })}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <polyline points="12 6 12 12 16 14" />
-              {thinkingMode === "auto" && (
-                <g>
-                  <circle
-                    cx="19"
-                    cy="5"
-                    r="5.5"
-                    fill="currentColor"
-                    stroke="none"
-                  />
-                  <text
-                    x="19"
-                    y="5"
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fill="var(--bg-primary, #1a1a2e)"
-                    fontSize="8"
-                    fontWeight="700"
-                    fontFamily="system-ui, sans-serif"
-                    stroke="none"
-                  >
-                    A
-                  </text>
-                </g>
-              )}
-            </svg>
-          </button>
-        )}
+        <ReasoningControl
+          disabled={disabled}
+          supportsReasoningControl={supportsReasoningControl}
+          reasoningEfforts={reasoningEfforts}
+          supportsFastMode={supportsFastMode}
+        />
         {voiceButtonRef && onVoiceTranscript && onInterimTranscript && (
           <VoiceInputButton
             ref={voiceButtonRef}
